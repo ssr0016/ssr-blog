@@ -5,8 +5,8 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/ssr0016/template/internal/apperror"
-	"github.com/ssr0016/template/internal/service"
+	"github.com/ssr0016/ssr-blog/internal/apperror"
+	"github.com/ssr0016/ssr-blog/internal/service"
 )
 
 type PasswordResetHandler struct {

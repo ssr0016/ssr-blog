@@ -1,4 +1,4 @@
-module github.com/ssr0016/template
+module github.com/ssr0016/ssr-blog
 
 go 1.26.0
 

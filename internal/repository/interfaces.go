@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/ssr0016/template/internal/model"
+	"github.com/ssr0016/ssr-blog/internal/model"
 )
 
 // UserRepository defines the interface for user data access.

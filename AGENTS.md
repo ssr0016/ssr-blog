@@ -1,4 +1,4 @@
-# template-go-echo-squirrel -- Agent Instructions
+# ssrBlog -- Agent Instructions
 
 > Project-specific rules. Inherits from ~/.ai-workflow/global/AGENTS.md
 

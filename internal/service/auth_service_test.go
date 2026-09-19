@@ -7,8 +7,8 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/ssr0016/template/internal/model"
-	"github.com/ssr0016/template/internal/repository"
+	"github.com/ssr0016/ssr-blog/internal/model"
+	"github.com/ssr0016/ssr-blog/internal/repository"
 )
 
 const testPassword = "X7kP9mQ2vL8nR4tY6wB3zC5dF1gH0jK"

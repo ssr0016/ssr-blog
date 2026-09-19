@@ -1,4 +1,4 @@
-# Constitution: template-go-echo-squirrel
+# Constitution: ssrBlog
 
 > Project principles. Non-negotiable. All decisions must align.
 
