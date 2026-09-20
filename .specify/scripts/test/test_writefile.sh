@@ -66,6 +66,24 @@ rm -f "$target"
 refuse "case2_empty_refused" bash -c ": | \"\$WF\" \"\$target\" --lines 0 --sig x --no-backup"
 check "case2_no_file" test ! -e "$target"
 
+# Case 2b: the empty-content check itself. Empty stdin is also refused by the signature
+# check, so the refusal above cannot tell the checks apart. A --from file takes its
+# signature from its own last line, so an empty --from file passes every other check and
+# only the empty-content check refuses it. Without it an empty file would be written and
+# reported as success. The message pins which check refused.
+: > "$tmp/empty.in"
+refuse "case2b_empty_from_file_refused" "$WF" "$target" --from "$tmp/empty.in" --no-backup
+check "case2b_empty_from_file_creates_nothing" test ! -e "$target"
+err=$("$WF" "$target" --from "$tmp/empty.in" --no-backup 2>&1 >/dev/null)
+check "case2b_empty_from_file_message" bash -c 'printf "%s\n" "$1" | grep -q "refusing to write empty content"' _ "$err"
+err=$(: | "$WF" "$target" --lines 0 --sig x --no-backup 2>&1 >/dev/null)
+check "case2b_empty_stdin_message" bash -c 'printf "%s\n" "$1" | grep -q "refusing to write empty content"' _ "$err"
+printf "original\n" > "$target"
+refuse "case2b_empty_from_file_over_existing_refused" "$WF" "$target" --from "$tmp/empty.in"
+check "case2b_existing_target_intact" grep -q "^original$" "$target"
+check "case2b_no_backup_made_for_refused_write" bash -c '! ls "$1"/target.txt.bak.* >/dev/null 2>&1' _ "$tmp"
+rm -f "$target" "$tmp"/target.txt.bak.*
+
 # Case 3: in stdin mode both --lines and --sig are required; a missing one is refused
 # even when the other is correct, and the target is untouched
 printf "original\\n" > "$target"
