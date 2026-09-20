@@ -228,8 +228,11 @@ If T3 runs before T2, run this test file directly with `bash`; T2 creates `run.s
 **Parallel:** T7, T8
 
 **Files:**
-- `.claude/commands/speckit-converge.md` (rewrite)
+- `.claude/commands/speckit-converge.md` (rewrite: rotation, caps, stop conditions)
+- `.claude/commands/speckit-implement.md` (claim verification, no-heredoc, metrics)
+- `.ai-workflow/prompts/05-build.md` (same rules as implement)
 - `.ai-workflow/prompts/06-review.md` (the four round briefs)
+- `.specify/scripts/test/test_no_heredoc.sh` (new; heredoc ban test)
 - `~/.claude/commands/speckit-converge.md` (outside the repo; re-sync offered, only with your approval)
 
 **Content to cover (spec behavior numbers in brackets):**

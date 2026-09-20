@@ -97,10 +97,63 @@ After the change (script output `failures: 0`, 29 PASS lines):
 - [x] make test -- exit 0, all packages ok
 - [x] Workflow-only guard -- only .specify/ changes
 - [x] Not committed yet -- awaiting user
-- [ ] T6: Converge command and review prompt -- pending
-- [ ] T7: Claim verification in implement/build -- pending
-- [ ] T8: sync.sh and install -- pending
-- [ ] T9: Verification and dogfood -- pending
+
+### T6: Converge command and review prompt
+
+- [x] speckit-converge.md rewritten -- 143 lines, 12 sections: caps, four-round rotation, severity/clean rules, ledger, read-only reviewer, empty-range stop, stop conditions, output status, Accepted-open-findings path
+- [x] 06-review.md rewritten -- 71 lines: round briefs (round 1 two parallel reviewers, round 2 verify-edit then general, round 3 adversarial + test quality, round 4 context-free), severity, read-only note
+- [x] test_no_heredoc.sh created first -- 75 lines, scans top-level `.specify/scripts/*.sh` for the heredoc marker, scans command/prompt `.md` for the marker inside fences only
+- [x] Static checks: `converge.yaml` named 3x, `**Round` 4x, `read-only` present, `Accepted open findings` present, empty-range stop present, 0 fences, 0 marker tokens, ASCII only
+- [x] Heredoc test passes: 13 passed, 0 failed
+- [x] Drift reported: `.claude/commands/speckit-converge.md` and `speckit-implement.md` differ from `~/.claude/commands/`. Re-sync NOT done; needs user approval. See notes.md.
+- [x] tasks.md T6 Files: block corrected -- added speckit-implement.md, 05-build.md, test_no_heredoc.sh (334 lines total)
+- [x] `.gitignore` `*.bak.*` fix landed as separate commit 058692b
+
+#### Behavior mapping (spec behaviors 1-14)
+
+| # | Where in speckit-converge.md |
+|---|---|
+| 1 range + spec reviewed; empty range stops | ## Process step 1; ## Empty range |
+| 2 fresh reviewers, fixed 4-round rotation | ## Rotation |
+| 3 severities BLOCKER/SHOULD-FIX/NIT | ## Severity |
+| 4 clean = 0 BLOCKER + 0 SHOULD-FIX | ## Severity |
+| 5 two consecutive clean; reset on non-clean | ## Severity |
+| 6 rule unchanged | (not modified) |
+| 7 ledger in findings.md; repeats marked | ## Ledger |
+| 8 non-fixed findings to notes.md | ## Ledger |
+| 9 reviewer read-only | ## Reviewer is read-only |
+| 10 caps 4 / 15 / 90000; token accounting | ## Caps |
+| 11 stop conditions | ## Process step 5 |
+| 12 read converge.yaml, print at start | ## Caps |
+| 13 status + open findings + Accepted-open-findings | ## Output |
+| 14 grandfathered features | (spec-only; not in command text) |
+
+#### Workflow-change rules
+
+- [x] Behaviors mapped above; no behavior unmapped
+- [x] No contradiction with constitution 7.3, 7.4 -- see fresh-agent note
+- [x] No multi-line heredoc inside any fence in changed files -- 0 fences
+- [x] Drift reported, re-sync deferred to user
+- [x] Templates identical
+
+Fresh-agent read of 7.3 + 7.4 against the changed text: 7.4(a) read-only reviewer -> converge.md "Reviewer is read-only"; 7.4(b) two-consecutive-clean unchanged -> "Severity"; 7.4(c) caps in converge.yaml -> "Caps". No contradiction.
+
+### T7: Claim verification and paste-safe writes in implement and build
+
+Advanced during the T6 session; same workflow-change type, no RBAC surface.
+
+- [x] speckit-implement.md rewritten -- 65 lines: verify-before-claim, no-heredoc rule, per-ticket metrics update, both test runners (`make test`, `bash .specify/scripts/test/run.sh`)
+- [x] 05-build.md rewritten -- 42 lines, same rules as implement
+- [x] Both files ASCII only, 0 fences, 0 marker tokens
+- [x] No contradiction with constitution 7.3, 7.4
+
+### T8: Sync -- sync.sh and install
+
+- [ ] Pending
+
+### T9: Verification and dogfood
+
+- [ ] Pending
 
 ## Phase 3: Verify
 
@@ -114,7 +167,8 @@ After the change (script output `failures: 0`, 29 PASS lines):
 
 ## Notes
 
-- Context clears: 1 (see metrics.md)
+- Context clears: 2 (see metrics.md)
 - Blockers: none
 - Decisions: see notes.md
 - ADRs created: docs/adr/0006-bounded-converge.md (T1, commit e13f2aa)
+- Drift: repo vs home copies of speckit-converge.md and speckit-implement.md differ; re-sync awaits user approval

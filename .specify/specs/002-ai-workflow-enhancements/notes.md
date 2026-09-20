@@ -54,6 +54,22 @@ Not recorded here. The resolved questions are in spec.md "Open Questions".
 - T4: test_templates.sh written before reconciling the feature 002 metrics. -- TDD kept the reconciliation honest; caught tickets_closed mismatch.
 - T4: feature 002 metrics reconciled: tickets_closed 4 -> 5 (T1-T5). -- keeps the running file consistent with the finished template.
 
+## T6 Decisions
+
+- T6: T6 content scope covers spec behaviors 1-14 (converge discipline); T7 covers 15-33 (claim verification, paste-safe writes). The tasks.md Files block originally listed only converge.md + 06-review.md, but the Content section named behaviors 15-20 and 25-33. Resolved by treating both as one session and correcting the Files block (net +3 lines, 334 total).
+- T6: speckit-converge.md was rewritten in full (143 lines) rather than patched, because the caps/rotation/stop-condition content was absent entirely and the old text had no natural insert points.
+- T6: 06-review.md rewritten with the four round briefs from spec behavior 2. Round 3 is "adversarial inputs and test quality" -- the spec is the only place this is stated; plan.md line 47 did not name it.
+- T6: test_no_heredoc.sh scans top-level .specify/scripts/*.sh only, not the test directory. -- test fixtures embed the marker token as data on purpose (test_writefile.sh:41). Comment lines in the test script itself were reworded to avoid the literal token.
+- T6: The base64-decode + writefile.sh --from route was used for all four command/prompt rewrites, not heredoc paste. -- the terminal corrupted multi-line heredoc pastes three times. Base64 has no quotes, backticks, or marker tokens for the terminal to misparse.
+- T6: tasks.md T6 Files block corrected, not left as-is. -- without the fix, behaviors 25-33 had no file mapped to them.
+
+## T7 Decisions
+
+- T7: Claim verification, no-heredoc, and metrics-per-ticket rules were added to speckit-implement.md and 05-build.md. -- same rules as T6's implement scope; the tasks.md Content section for T6 named these behaviors even though the Files block did not.
+- T7: Both test runners are named in speckit-implement.md (make test for Go, bash .specify/scripts/test/run.sh for workflow). -- T6/T7 are workflow tickets, so make test alone would not cover the changed files.
+- T7: Metrics updates land "when the ticket closes", matching spec behavior 33 ("updated when each event happens"). -- "for this ticket" was ambiguous about timing.
+
+
 ## Blockers
 
 - None.
@@ -63,6 +79,7 @@ Not recorded here. The resolved questions are in spec.md "Open Questions".
 | # | Ticket | Reason | Notes |
 |---|---|---|---|
 | 1 | T1 | Start of ticket | /clear before T1, per Article 7.2 |
+| 2 | T6 | Start of ticket | /clear before T6, per Article 7.2; T6 and T7 advanced together |
 
 ## ADRs Created
 
@@ -82,6 +99,9 @@ Not recorded here. The resolved questions are in spec.md "Open Questions".
   2. (Fixed after this read: 7.4(c) now states the accepted-findings rule.) 7.4(c) did not say what Aborted means for shipping.
   3. 7.4(a) "author fixes between rounds" lacks the ADR's "inside the scope of the change" limit.
   4. 7.4(c) does not say whether a cap is checked before or after a round, or whether landing exactly on the cap counts as reaching it.
+
+- Drift: `.claude/commands/speckit-converge.md` and `.claude/commands/speckit-implement.md` differ from their `~/.claude/commands/` copies after T6. Re-sync is NOT done -- spec behavior requires user approval and forbids silent re-sync. Resolve before or during T9.
+
 
 ## Deferred SHOULD-FIX and NIT
 
