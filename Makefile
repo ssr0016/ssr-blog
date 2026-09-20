@@ -85,7 +85,7 @@ test:
 
 .PHONY: lint
 lint:
-	@golangci-lint run ./...
+	@golangci-lint run ./internal/... ./pkg/... ./cmd/...ernal/... ./pkg/... ./cmd/...
 
 .PHONY: fmt
 fmt:

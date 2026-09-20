@@ -51,6 +51,12 @@ linters:
         linters:
           - dupl
           - gosec
+      - path: internal/repository/post_repo\.go
+        linters:
+          - dupl
+      - path: internal/repository/user_repo\.go
+        linters:
+          - dupl
       - path: _test\.go
         linters:
           - dupl

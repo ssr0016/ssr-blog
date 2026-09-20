@@ -19,7 +19,7 @@ func TestSlugify(t *testing.T) {
 		{"leading trailing and doubled hyphens", "  --A--B  ", "a-b"},
 		{"underscores are separators", "snake_case_title", "snake-case-title"},
 		{"upper accents", "ÉCOLE Ñandú", "ecole-nandu"},
-		{"sharp s and ligatures", "Straße Æther Œuvre", "strasse-aether-oeuvre"},
+		{"sharp s and ligatures", "Straße Æon Œuvre", "strasse-aeon-oeuvre"},
 		{"stroke letters", "Łódź Øresund Đà", "lodz-oresund-da"},
 		{"latin extended-a", "Škoda Žižek Čapek", "skoda-zizek-capek"},
 		{"decomposed accent does not split the word", "Amélie Café", "amelie-cafe"},
