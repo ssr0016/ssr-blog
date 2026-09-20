@@ -37,6 +37,27 @@ func TestNotBlank(t *testing.T) {
 	}
 }
 
+func TestCreateAndUpdatePostRequest_RejectNUL(t *testing.T) {
+	v := validator.New()
+	for _, field := range []string{"title", "content", "excerpt"} {
+		c, u := validCreate(), validUpdate()
+		switch field {
+		case "title":
+			c.Title, u.Title = "a\x00b", "a\x00b"
+		case "content":
+			c.Content, u.Content = "a\x00b", "a\x00b"
+		case "excerpt":
+			c.Excerpt, u.Excerpt = "a\x00b", "a\x00b"
+		}
+		if err := v.Validate(&c); err == nil {
+			t.Errorf("create with NUL in %s: want validation error", field)
+		}
+		if err := v.Validate(&u); err == nil {
+			t.Errorf("update with NUL in %s: want validation error", field)
+		}
+	}
+}
+
 func validCreate() model.CreatePostRequest {
 	return model.CreatePostRequest{Title: "Hello", Content: "Body"}
 }

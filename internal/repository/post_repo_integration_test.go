@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -309,6 +310,34 @@ func TestPostRepo_ListPublished_Pagination(t *testing.T) {
 	assert.Empty(t, past)
 }
 
+func TestPostRepo_ListPublished_HugePageReturnsEmptyNotError(t *testing.T) {
+	repo, _ := setupPostRepo(t)
+	ctx := context.Background()
+	_, err := repo.Create(ctx, publishedPost("only", time.Now().UTC().Add(-time.Hour)))
+	require.NoError(t, err)
+
+	for _, page := range []int{math.MaxInt64, math.MaxInt64/20 + 2} {
+		items, total, err := repo.ListPublished(ctx, page, 20)
+		require.NoError(t, err, "page %d", page)
+		assert.Equal(t, int64(1), total)
+		assert.NotNil(t, items)
+		assert.Empty(t, items)
+	}
+}
+
+func TestPostRepo_ListAdmin_HugePageReturnsEmptyNotError(t *testing.T) {
+	repo, _ := setupPostRepo(t)
+	ctx := context.Background()
+	_, err := repo.Create(ctx, publishedPost("only", time.Now().UTC().Add(-time.Hour)))
+	require.NoError(t, err)
+
+	items, total, err := repo.ListAdmin(ctx, "", math.MaxInt64, 20)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.NotNil(t, items)
+	assert.Empty(t, items)
+}
+
 func TestPostRepo_ListPublished_EmptyTable(t *testing.T) {
 	repo, _ := setupPostRepo(t)
 
@@ -573,7 +602,7 @@ func TestPostRepo_Update_ReplacesEditableFieldsAndNeverTouchesSlug(t *testing.T)
 	require.NotNil(t, updated.PublishedAt)
 	assert.True(t, publishedAt.Equal(*updated.PublishedAt))
 	assert.True(t, created.CreatedAt.Equal(updated.CreatedAt), "created_at must not change")
-	assert.False(t, updated.UpdatedAt.Before(created.UpdatedAt), "updated_at must not go backwards")
+	assert.True(t, updated.UpdatedAt.After(created.UpdatedAt), "updated_at must advance on update")
 	assert.Nil(t, updated.DeletedAt)
 
 	// The stored row agrees, not just the RETURNING clause.

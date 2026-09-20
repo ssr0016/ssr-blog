@@ -54,9 +54,9 @@ type AdminPostSummary struct {
 // There is no slug field: the slug is always derived from the title.
 // Status is optional and defaults to draft.
 type CreatePostRequest struct {
-	Title         string `json:"title" validate:"required,notblank,max=200"`
-	Content       string `json:"content" validate:"required,notblank,max=100000"`
-	Excerpt       string `json:"excerpt" validate:"max=500"`
+	Title         string `json:"title" validate:"required,notblank,nonul,max=200"`
+	Content       string `json:"content" validate:"required,notblank,nonul,max=100000"`
+	Excerpt       string `json:"excerpt" validate:"nonul,max=500"`
 	CoverImageURL string `json:"cover_image_url" validate:"omitempty,max=2048,http_url"`
 	Status        string `json:"status" validate:"omitempty,oneof=draft published"`
 }
@@ -64,9 +64,9 @@ type CreatePostRequest struct {
 // UpdatePostRequest is the payload for editing a post (full replace of the editable fields).
 // There is no slug field: a slug never changes after creation.
 type UpdatePostRequest struct {
-	Title         string `json:"title" validate:"required,notblank,max=200"`
-	Content       string `json:"content" validate:"required,notblank,max=100000"`
-	Excerpt       string `json:"excerpt" validate:"max=500"`
+	Title         string `json:"title" validate:"required,notblank,nonul,max=200"`
+	Content       string `json:"content" validate:"required,notblank,nonul,max=100000"`
+	Excerpt       string `json:"excerpt" validate:"nonul,max=500"`
 	CoverImageURL string `json:"cover_image_url" validate:"omitempty,max=2048,http_url"`
 	Status        string `json:"status" validate:"required,oneof=draft published"`
 }

@@ -97,3 +97,18 @@ func WithSuffix(base string, n int) string {
 	}
 	return base + "-" + strconv.Itoa(n)
 }
+
+// validSlug reports whether s could have been produced by the slug generator: 1..MaxSlugLen
+// characters of [a-z0-9-]. Anything else cannot exist, so lookups skip the database.
+func validSlug(s string) bool {
+	if s == "" || len(s) > MaxSlugLen {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
+			return false
+		}
+	}
+	return true
+}

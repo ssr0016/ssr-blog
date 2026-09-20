@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
@@ -105,6 +106,15 @@ func publishedOnly() sq.Sqlizer {
 	return sq.And{sq.Eq{"status": model.PostStatusPublished}, notDeleted()}
 }
 
+// pageOffset returns the SQL OFFSET for a 1-based page. ok is false when the offset does not fit
+// in an int64 (Postgres rejects it), which means the page is far past the end of any table.
+func pageOffset(page, limit int) (offset uint64, ok bool) {
+	if page < 1 || limit < 1 || page-1 > math.MaxInt64/limit {
+		return 0, false
+	}
+	return uint64(page-1) * uint64(limit), true // #nosec G115 - both operands checked positive above
+}
+
 // ListPublished returns one page of public post summaries, newest first (published_at DESC, id DESC),
 // and the total number of public posts. A page past the end returns an empty, non-nil slice.
 func (r *PostRepo) ListPublished(ctx context.Context, page, limit int) ([]model.PostSummary, int64, error) {
@@ -132,14 +142,17 @@ func (r *PostRepo) ListPublished(ctx context.Context, page, limit int) ([]model.
 		return nil, 0, fmt.Errorf("count published posts: %w", err)
 	}
 
-	offset := (page - 1) * limit
+	offset, ok := pageOffset(page, limit)
+	if !ok {
+		return []model.PostSummary{}, total, nil
+	}
 	query, args, err := r.db.Builder.
 		Select("title", "slug", "excerpt", "cover_image_url", "published_at").
 		From("posts").
 		Where(publishedOnly()).
 		OrderBy("published_at DESC", "id DESC").
-		Limit(uint64(limit)).   // #nosec G115 - limit validated
-		Offset(uint64(offset)). // #nosec G115 - offset validated
+		Limit(uint64(limit)). // #nosec G115 - limit validated
+		Offset(offset).
 		ToSql()
 	if err != nil {
 		return nil, 0, fmt.Errorf("build query: %w", err)
@@ -214,14 +227,17 @@ func (r *PostRepo) ListAdmin(ctx context.Context, status string, page, limit int
 		return nil, 0, fmt.Errorf("count posts: %w", err)
 	}
 
-	offset := (page - 1) * limit
+	offset, ok := pageOffset(page, limit)
+	if !ok {
+		return []model.AdminPostSummary{}, total, nil
+	}
 	query, args, err := r.db.Builder.
 		Select("id", "title", "slug", "excerpt", "cover_image_url", "status", "published_at", "created_at", "updated_at").
 		From("posts").
 		Where(filter).
 		OrderBy("created_at DESC", "id DESC").
-		Limit(uint64(limit)).   // #nosec G115 - limit validated
-		Offset(uint64(offset)). // #nosec G115 - offset validated
+		Limit(uint64(limit)). // #nosec G115 - limit validated
+		Offset(offset).
 		ToSql()
 	if err != nil {
 		return nil, 0, fmt.Errorf("build query: %w", err)

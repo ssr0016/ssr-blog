@@ -606,6 +606,39 @@ func TestPostService_GetPublishedBySlug_Found(t *testing.T) {
 	}
 }
 
+// A slug the generator could never produce (NUL byte, uppercase, too long) is a plain 404 and must
+// not reach the repository, where Postgres would reject a NUL byte and surface as a 500.
+func TestPostService_GetPublishedBySlug_ImpossibleSlugIsNotFoundWithoutQuery(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	repo.GetPublishedBySlugFunc = func(context.Context, string) (*model.Post, error) {
+		t.Error("repository must not be queried for an impossible slug")
+		return nil, errors.New("boom")
+	}
+	svc := newTestPostService(repo)
+
+	for _, slug := range []string{"", "a\x00b", "Upper", "has space", "a/b", "é", strings.Repeat("a", MaxSlugLen+1)} {
+		got, err := svc.GetPublishedBySlug(context.Background(), slug)
+		if got != nil {
+			t.Errorf("%q: post = %+v, want nil", slug, got)
+		}
+		appErr := requireAppError(t, err, apperror.CodeNotFound, http.StatusNotFound)
+		if appErr.Message != "post not found" {
+			t.Errorf("%q: message = %q, want %q", slug, appErr.Message, "post not found")
+		}
+	}
+}
+
+func TestValidSlug(t *testing.T) {
+	for slug, want := range map[string]bool{
+		"hello-world": true, "a": true, "a-2": true, strings.Repeat("a", MaxSlugLen): true,
+		"": false, "Hello": false, "a_b": false, "a\x00": false, strings.Repeat("a", MaxSlugLen+1): false,
+	} {
+		if got := validSlug(slug); got != want {
+			t.Errorf("validSlug(%q) = %v, want %v", slug, got, want)
+		}
+	}
+}
+
 // Draft, deleted and missing slugs all reach the service as "the repo returned nil", so they must
 // produce the same error, message included.
 func TestPostService_GetPublishedBySlug_NotFoundParity(t *testing.T) {

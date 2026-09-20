@@ -100,6 +100,9 @@ func (s *PostService) ListPublished(ctx context.Context, params pagination.Param
 // GetPublishedBySlug returns a public post. A draft, a soft-deleted post and a slug that does not
 // exist all return the same not-found error, so callers cannot tell them apart.
 func (s *PostService) GetPublishedBySlug(ctx context.Context, slug string) (*model.Post, error) {
+	if !validSlug(slug) {
+		return nil, apperror.NotFound("post not found")
+	}
 	post, err := s.postRepo.GetPublishedBySlug(ctx, slug)
 	if err != nil {
 		return nil, apperror.Internal("failed to get post").WithError(err)
