@@ -3,6 +3,12 @@
 # Usage:
 #   writefile.sh TARGET --lines N --sig TEXT [--sha256 HEX] [--no-backup] [--allow-utf8] < content
 #   writefile.sh TARGET --from FILE [--no-backup] [--allow-utf8]
+# With content on stdin, --lines and --sig are both required: the sender states what to
+# expect independently of the payload, or the check would only verify this script's own
+# write. TARGET must not be a directory.
+# After every successful write, files in the target's directory named
+# *.bak.YYYY-MM-DDTHH-MM-SS whose timestamp is over 7 days old are deleted, whether or not
+# this script made them (accepted risk). Other names are never touched.
 set -eu
 
 die() { printf "writefile: %s\\n" "$*" >&2; exit 1; }
@@ -32,7 +38,12 @@ done
 
 if [ -n "$from_file" ]; then
     [ -z "$lines_req$sig_req$sha_req" ] || die "--from cannot be combined with --lines/--sig/--sha256"
+else
+    [ -n "$lines_req" ] || die "--lines is required when content comes from stdin"
+    [ -n "$sig_req" ] || die "--sig is required when content comes from stdin"
 fi
+
+[ ! -d "$target" ] || die "TARGET is a directory: $target"
 
 tmpdir="$(dirname "$target")"
 [ -d "$tmpdir" ] || die "target directory does not exist: $tmpdir"
@@ -89,17 +100,24 @@ if [ -e "$target" ] && [ "$no_backup" -eq 0 ]; then
     if ! cp -- "$target" "$backup"; then
         die "failed to create backup: $backup"
     fi
-    cutoff=$(date -u -d "7 days ago" +%Y-%m-%dT%H-%M-%S)
-    for old in "$target".bak.*; do
-        [ -e "$old" ] || continue
-        old_ts=${old##*.bak.}
-        case "$old_ts" in
-            [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]-[0-9][0-9]-[0-9][0-9])
-                if [ "$old_ts" \< "$cutoff" ]; then rm -f -- "$old"; fi ;;
-        esac
-    done
 fi
 
 mv -- "$tmp" "$target"
 trap - EXIT
+
+# Best effort: a cleanup problem must never fail or undo a write that already happened.
+prune_old_backups() {
+    local cutoff old old_ts
+    cutoff=$(date -u -d "7 days ago" +%Y-%m-%dT%H-%M-%S 2>/dev/null) || return 0
+    for old in "$tmpdir"/*.bak.*; do
+        [ -f "$old" ] || continue
+        old_ts=${old##*.bak.}
+        case "$old_ts" in
+            [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]-[0-9][0-9]-[0-9][0-9])
+                if [ "$old_ts" \< "$cutoff" ]; then rm -f -- "$old" 2>/dev/null || true; fi ;;
+        esac
+    done
+    return 0
+}
+prune_old_backups
 exit 0

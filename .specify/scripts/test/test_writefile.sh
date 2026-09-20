@@ -24,8 +24,14 @@ check() {
 
 refuse() {
     local name="$1"; shift
-    if "$@" >/dev/null 2>&1; then
+    "$@" >/dev/null 2>&1
+    local rc=$?
+    if [ "$rc" -eq 0 ]; then
         printf 'FAIL %s (expected refusal, got success)\n' "$name"
+        fail=$((fail + 1))
+    elif [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ]; then
+        # The command itself could not run: that is not a refusal by writefile.sh.
+        printf 'FAIL %s (command could not run, exit %s)\n' "$name" "$rc"
         fail=$((fail + 1))
     else
         printf 'PASS %s\n' "$name"
@@ -34,6 +40,11 @@ refuse() {
 }
 
 target="$tmp/target.txt"
+
+# The refuse cases below run writefile.sh inside "bash -c", which only sees exported
+# variables. Without this export the inner command is empty, every refusal passes
+# trivially, and nothing about writefile.sh is tested.
+export WF tmp target
 
 # Case 1: quotes, backticks, dollar, heredoc-term lines written byte-identical
 printf 'line with "double" and %s and $var\n' '' > "$tmp/c1.in"
@@ -55,10 +66,17 @@ rm -f "$target"
 refuse "case2_empty_refused" bash -c ": | \"\$WF\" \"\$target\" --lines 0 --sig x --no-backup"
 check "case2_no_file" test ! -e "$target"
 
-# Case 3: missing --sig refused, target untouched
+# Case 3: in stdin mode both --lines and --sig are required; a missing one is refused
+# even when the other is correct, and the target is untouched
 printf "original\\n" > "$target"
-refuse "case3_missing_sig" bash -c "printf \"body\\\\nsig\\\\n\" | \"\$WF\" \"\$target\" --lines 1 --no-backup"
+refuse "case3_missing_sig" bash -c "printf \"body\\\\nsig\\\\n\" | \"\$WF\" \"\$target\" --lines 2 --no-backup"
 check "case3_target_intact" grep -q "^original$" "$target"
+refuse "case3_missing_lines" bash -c "printf \"body\\\\nsig\\\\n\" | \"\$WF\" \"\$target\" --sig sig --no-backup"
+check "case3_missing_lines_target_intact" grep -q "^original$" "$target"
+refuse "case3_neither_flag" bash -c "printf \"body\\\\nsig\\\\n\" | \"\$WF\" \"\$target\" --no-backup"
+check "case3_neither_flag_target_intact" grep -q "^original$" "$target"
+refuse "case3_empty_sig_value" bash -c "printf \"body\\\\nsig\\\\n\" | \"\$WF\" \"\$target\" --lines 2 --sig \"\" --no-backup"
+check "case3_no_stray_temp" bash -c '! ls -A "$1" | grep -q "^\.writefile\."' _ "$tmp"
 rm -f "$target"
 
 # Case 4: wrong --lines refused, no file created
@@ -67,6 +85,7 @@ check "case4_no_file" test ! -e "$target"
 
 # Case 5: Cyrillic look-alike (built via printf escape) rejected with line:column
 cyr=$(printf "\\320\\260")
+export cyr
 refuse "case5_cyrillic_rejected" bash -c "printf \"ab%s\\\\nsig\\\\n\" \"\$cyr\" | \"\$WF\" \"\$target\" --lines 2 --sig sig --no-backup"
 check "case5_no_file" test ! -e "$target"
 
@@ -122,6 +141,52 @@ check "case11_old_removed" test ! -e "$tmp/target.txt.bak.$old_ts"
 check "case11_new_kept" test -e "$tmp/target.txt.bak.$new_ts"
 check "case11_other_untouched" test -e "$tmp/target.txt.not-a-backup"
 rm -f "$target" "$tmp"/target.txt.bak.* "$tmp/target.txt.not-a-backup"
+
+# Case 12: a directory as TARGET is refused in both backup modes, with nothing left behind
+mkdir -p "$tmp/adir"
+refuse "case12_dir_target_no_backup" bash -c "printf \"body\\\\nsig\\\\n\" | \"\$WF\" \"\$tmp/adir\" --lines 2 --sig sig --no-backup"
+refuse "case12_dir_target_with_backup" bash -c "printf \"body\\\\nsig\\\\n\" | \"\$WF\" \"\$tmp/adir\" --lines 2 --sig sig"
+check "case12_dir_stays_empty" test -z "$(ls -A "$tmp/adir")"
+check "case12_no_stray_temp" bash -c '! ls -A "$1" | grep -q "^\.writefile\."' _ "$tmp"
+rmdir "$tmp/adir"
+
+# Case 13: the 7-day cleanup covers the whole target directory on every write:
+# other files' backups, a new target, and --no-backup. Names that do not match
+# the strict pattern are never touched.
+old_ts=$(date -u -d "8 days ago" +%Y-%m-%dT%H-%M-%S)
+new_ts=$(date -u -d "6 days ago" +%Y-%m-%dT%H-%M-%S)
+seed_others() {
+    printf "old\n" > "$tmp/other.txt.bak.$old_ts"
+    printf "new\n" > "$tmp/other.txt.bak.$new_ts"
+    printf "keep\n" > "$tmp/other.txt.not-a-backup"
+    printf "keep\n" > "$tmp/other.txt.bak.notatimestamp"
+}
+clear_others() { rm -f "$tmp"/other.txt.* "$target" "$tmp"/target.txt.bak.*; }
+
+seed_others
+printf "v1\nsig\n" | "$WF" "$target" --lines 2 --sig sig
+check "case13_new_target_prunes_other_old" test ! -e "$tmp/other.txt.bak.$old_ts"
+check "case13_new_target_keeps_recent" test -e "$tmp/other.txt.bak.$new_ts"
+check "case13_new_target_keeps_non_matching" test -e "$tmp/other.txt.not-a-backup"
+check "case13_new_target_keeps_bad_timestamp" test -e "$tmp/other.txt.bak.notatimestamp"
+check "case13_new_target_written" grep -q "^v1$" "$target"
+clear_others
+
+printf "seed\nsig\n" | "$WF" "$target" --lines 2 --sig sig --no-backup
+seed_others
+printf "v2\nsig\n" | "$WF" "$target" --lines 2 --sig sig --no-backup
+check "case13_no_backup_write_still_prunes" test ! -e "$tmp/other.txt.bak.$old_ts"
+check "case13_no_backup_makes_no_backup" bash -c '! ls "$1"/target.txt.bak.* >/dev/null 2>&1' _ "$tmp"
+clear_others
+
+# A matching name that cannot be removed (a directory) must not fail the write
+printf "seed\nsig\n" | "$WF" "$target" --lines 2 --sig sig --no-backup
+mkdir "$tmp/stuck.bak.$old_ts"
+printf "v3\nsig\n" | "$WF" "$target" --lines 2 --sig sig --no-backup
+check "case13_cleanup_failure_does_not_fail_write" grep -q "^v3$" "$target"
+check "case13_undeletable_left_alone" test -d "$tmp/stuck.bak.$old_ts"
+rmdir "$tmp/stuck.bak.$old_ts"
+clear_others
 
 # Summary
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
