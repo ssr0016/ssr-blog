@@ -69,6 +69,18 @@ Not recorded here. The resolved questions are in spec.md "Open Questions".
 - T7: Both test runners are named in speckit-implement.md (make test for Go, bash .specify/scripts/test/run.sh for workflow). -- T6/T7 are workflow tickets, so make test alone would not cover the changed files.
 - T7: Metrics updates land "when the ticket closes", matching spec behavior 33 ("updated when each event happens"). -- "for this ticket" was ambiguous about timing.
 
+## T8 Decisions
+
+- T8: sync.sh syncs exactly 4 files (writefile.sh, verify-edit.sh, sync.sh, converge.yaml), flat into `$SPEC_KIT_HOME` (default `~/.spec-kit`). `.claude/commands/` is NOT part of sync.sh. -- user decision; the command copies are not part of `~/.spec-kit/` and adding them goes beyond the T8 interface in tasks.md.
+- T8: The installed `~/.spec-kit/sync.sh` is a repo-checkout tool, not a runtime tool. It finds the repo root from its own location (`../..`), so run from `~/.spec-kit/` it exits 2 with "repo source not readable ... (run from a repo checkout)". -- it is installed only so the set is complete; `check` and `install` are always run from the repo. A `SPEC_KIT_REPO` override was not added (outside the T8 interface).
+- T8: `install --force` has no 7-day backup cleanup, unlike writefile.sh. Backups (`<name>.bak.YYYY-MM-DDTHH-MM-SS`) accumulate in `~/.spec-kit/`. -- not required by T8, and forcing an overwrite of `~/.spec-kit/` is rare.
+- T8: Test case 7b (unreadable home file exits 2) relies on `chmod 000` being unreadable, which does not hold for root. -- root caveat; the test is meant for a normal user, as in this repo's CI.
+- T8: A second backup in the same second overwrites the first, because the name has only second resolution. -- inherited from writefile.sh (`cp` to the same name); not a T8 concern, and any fix is feature 003 scope.
+- T8: install applies in three phases: stage every copy to a temp file in the home directory, back up every differing file, then `mv` each into place. A failure while staging or backing up leaves the home directory unchanged; only a failing `mv` mid-way could leave a partial install. -- no mid-`mv` test, because that failure is hard to simulate; user accepted.
+- T8: Drift on `speckit-converge.md` and `speckit-implement.md` was resolved by a manual, approved copy (`writefile.sh --from`, backups `*.bak.2026-09-20T11-19-25`) after the diffs were shown. Before copying, a stray `(` in the converge "Empty range" text and two blank-line nits were fixed in the repo copies, to land as a separate `fix(workflow)` commit (pending), not folded into T8.
+- T8: The `(empty` typo is probably prose damage from terminal paste corruption (cause not proven); the T6 checks did not catch it because they test structure, not wording.
+- T8: writefile.sh creates the target with mode 600 (from `mktemp`) and does not preserve the mode of an existing target when overwriting. The two home command files came out 600 and were set to 664 by hand. -- known limitation for feature 003; writefile.sh was not changed in T8.
+
 
 ## Blockers
 
@@ -80,6 +92,7 @@ Not recorded here. The resolved questions are in spec.md "Open Questions".
 |---|---|---|---|
 | 1 | T1 | Start of ticket | /clear before T1, per Article 7.2 |
 | 2 | T6 | Start of ticket | /clear before T6, per Article 7.2; T6 and T7 advanced together |
+| 3 | T8 | Start of ticket | /clear before T8, per Article 7.2 |
 
 ## ADRs Created
 
@@ -100,7 +113,11 @@ Not recorded here. The resolved questions are in spec.md "Open Questions".
   3. 7.4(a) "author fixes between rounds" lacks the ADR's "inside the scope of the change" limit.
   4. 7.4(c) does not say whether a cap is checked before or after a round, or whether landing exactly on the cap counts as reaching it.
 
-- Drift: `.claude/commands/speckit-converge.md` and `.claude/commands/speckit-implement.md` differ from their `~/.claude/commands/` copies after T6. Re-sync is NOT done -- spec behavior requires user approval and forbids silent re-sync. Resolve before or during T9.
+- RESOLVED in T8 (commit reference pending): Drift: `.claude/commands/speckit-converge.md` and `.claude/commands/speckit-implement.md` differed from their `~/.claude/commands/` copies after T6. Re-sync was done only after user approval, by a manual copy; `diff -q` is now silent for all four command files. See T8 Decisions.
+
+- T9 cleanup: the converge command text, Caps section, says "Caps come from `.specify/converge.yaml` plus `~/.spec-kit/converge.yaml`". Spec behavior 12 and ADR 0006 mean the order "repo file, then home file, then built-in defaults", so "plus" should read "then". Not a contradiction, only imprecise. To be addressed in the T9 walkthrough; deliberately left unchanged in T8. (The word will also need re-syncing to `~/.claude/commands/` when it changes.)
+
+- Feature 003 candidates (not T8): writefile.sh does not preserve the target's mode (mktemp gives 600); same-second backups overwrite each other (also true of sync.sh --force).
 
 
 ## Deferred SHOULD-FIX and NIT

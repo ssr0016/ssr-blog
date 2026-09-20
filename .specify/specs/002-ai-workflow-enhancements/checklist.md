@@ -106,6 +106,7 @@ After the change (script output `failures: 0`, 29 PASS lines):
 - [x] Static checks: `converge.yaml` named 3x, `**Round` 4x, `read-only` present, `Accepted open findings` present, empty-range stop present, 0 fences, 0 marker tokens, ASCII only
 - [x] Heredoc test passes: 13 passed, 0 failed
 - [x] Drift reported: `.claude/commands/speckit-converge.md` and `speckit-implement.md` differ from `~/.claude/commands/`. Re-sync NOT done; needs user approval. See notes.md.
+  RESOLVED in T8: repo copies were re-synced to `~/.claude/commands/` after user approval; `diff -q` is silent for all four command files (see T8).
 - [x] tasks.md T6 Files: block corrected -- added speckit-implement.md, 05-build.md, test_no_heredoc.sh (334 lines total)
 - [x] `.gitignore` `*.bak.*` fix landed as separate commit 058692b
 
@@ -149,7 +150,23 @@ Advanced during the T6 session; same workflow-change type, no RBAC surface.
 
 ### T8: Sync -- sync.sh and install
 
-- [ ] Pending
+- [x] Tests written first -- `bash .specify/scripts/test/test_sync.sh` before sync.sh existed: 14 passed, 41 failed (every sync.sh call exit 127; the 14 passes were "nothing was created" asserts that hold trivially)
+- [x] test_sync.sh passes -- output: 55 passed, 0 failed
+- [x] run.sh passes -- 7 test files PASS (converge_yaml 9, ignore_rule 14, no_heredoc 14, sync 55, templates 43, verify_edit 21, writefile 23); summary line `7 passed, 0 failed`
+- [x] sync.sh static checks -- `wc -l` 169, `bash -n` OK, non-ASCII 0, `grep -c '<<'` 0, mode 775
+- [x] Interface -- exit 0 identical/installed, 1 drift or refused, 2 unreadable, 64 usage; covered by test cases 1-8b
+- [x] Install is all-or-nothing -- case 5 (differing file blocks install of missing files), case 6 (`--force` backs up only the differing file as `<name>.bak.YYYY-MM-DDTHH-MM-SS`)
+- [x] Tests never touch the real home -- case 10 compares a snapshot of `~/.spec-kit` before and after; equal
+- [x] Real check before install (user approved) -- 4 missing, 0 differing, exit 1
+- [x] Real install (user approved, no `--force`) -- `install: 4 installed, 0 updated, 0 unchanged`, exit 0; `ls -la ~/.spec-kit/` shows 4 files, no temp or .bak files
+- [x] Real check after install -- `ok: 4 of 4 identical`, exit 0 (T8 Done-when met)
+- [x] Drift resolved -- diffs shown and approved; typo `(empty` and two blank-line nits fixed in the repo copies first (`verify-edit.sh --absent '(empty'` and `--contains 'range is empty'` exit 0); copied with `writefile.sh --from` (backups `*.bak.2026-09-20T11-19-25`); `diff -q` silent and exit 0 for converge, implement, plan, specify; plan and specify `sha256sum -c` OK (untouched); home copies set to mode 664
+- [x] Scope held -- `.claude/commands/` is NOT part of sync.sh; T8 sync scope is the 4 files only (user decision)
+- [x] make lint -- output: `0 issues.`, exit 0
+- [x] make test -- exit 0, every package ok (results cached, valid because no Go code changed)
+- [x] Workflow-only guard -- `git diff --name-only main -- internal pkg cmd docs/API.md` printed nothing; `diff -rq .ai-workflow/templates .specify/templates` printed nothing, exit 0
+- [x] checklist.md, notes.md, metrics.md updated
+- [ ] Committed -- pending user approval; two commits proposed: `fix(workflow): repair converge typo and tidy command spacing`, then `feat(workflow): add sync helper for repo and home copies`
 
 ### T9: Verification and dogfood
 
@@ -167,8 +184,8 @@ Advanced during the T6 session; same workflow-change type, no RBAC surface.
 
 ## Notes
 
-- Context clears: 2 (see metrics.md)
+- Context clears: 3 (see metrics.md)
 - Blockers: none
 - Decisions: see notes.md
 - ADRs created: docs/adr/0006-bounded-converge.md (T1, commit e13f2aa)
-- Drift: repo vs home copies of speckit-converge.md and speckit-implement.md differ; re-sync awaits user approval
+- Drift: RESOLVED in T8. Repo and home copies of all four speckit command files are identical (`diff -q` silent). Commit reference pending.

@@ -17,8 +17,8 @@ Bootstrapped by hand in T1. The metrics template is built in T4; T4 reconciles a
 | Metric | Value |
 |---|---|
 | Tickets | 9 |
-| Tickets closed | 7 |
-| Context clears | 2 |
+| Tickets closed | 8 |
+| Context clears | 3 |
 | Converge rounds | 0 |
 | Tickets reopened after done | 0 |
 
@@ -28,6 +28,7 @@ Bootstrapped by hand in T1. The metrics template is built in T4; T4 reconciles a
 |---|---|---|
 | 1 | T1 | Start of ticket; fresh context per Article 7.2 |
 | 2 | T6 | Start of ticket; fresh context per Article 7.2 |
+| 3 | T8 | Start of ticket; fresh context per Article 7.2 |
 
 ### Findings per round
 
@@ -53,7 +54,7 @@ Bootstrapped by hand in T1. The metrics template is built in T4; T4 reconciles a
 | T5 | session (not measured separately) | not tracked (session) | not tracked |
 | T6 | session (not measured separately) | not tracked (session) | not tracked |
 | T7 | session (not measured separately) | not tracked (session) | not tracked |
-| T8 | pending | pending | pending |
+| T8 | session (not measured separately) | not tracked (session) | not tracked |
 | T9 | pending | pending | pending |
 
 ## Converge
@@ -68,8 +69,8 @@ Bootstrapped by hand in T1. The metrics template is built in T4; T4 reconciles a
 feature: 002-ai-workflow-enhancements
 status: in progress
 tickets: 9
-tickets_closed: 7
-context_clears: 2
+tickets_closed: 8
+context_clears: 3
 converge_rounds: 0
 converge_minutes: 0
 converge_tokens: 0
