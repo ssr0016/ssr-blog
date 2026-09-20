@@ -7,6 +7,8 @@ Be strict. Tag findings by severity. Stay inside the diff scope.
 
 You are read-only. You change nothing except the findings report, the ledger,
 and the metrics file. Fixes are the author's job between rounds.
+A change to any other file is not accepted as part of the round.
+It is reported as a finding against your brief.
 
 ## Round briefs
 
@@ -36,7 +38,8 @@ No earlier findings, no ledger.
 Every finding is BLOCKER, SHOULD-FIX, or NIT.
 
 A round is clean only if it has zero BLOCKER and zero SHOULD-FIX findings. NITs
-do not break a clean round but are still recorded.
+do not break a clean round but are still recorded. A round is not clean while the
+ledger holds an unresolved BLOCKER, even if you find nothing new.
 
 ## User Prompt Template
 
@@ -68,4 +71,5 @@ Output format:
 - Never review your own change.
 - Fresh reviewer each round.
 - No refactors outside the diff scope.
-- Do not raise a finding already in the ledger; the orchestrator marks repeats.
+- Do not raise a finding already in the ledger unless you have new evidence (then
+  say what is new and name the earlier finding); the orchestrator marks repeats.

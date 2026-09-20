@@ -62,6 +62,29 @@ check "case4_caps_repo_then_home" bash -c 'printf "%s\n" "$1" | grep -q -F -- "$
 check "case4_caps_no_plus" bash -c '! printf "%s\n" "$1" | grep -q -w plus' _ "$caps_line"
 check "case4_caps_defaults_last" bash -c 'printf "%s\n" "$1" | grep -q "^then the built-in defaults"' _ "$caps_next"
 
+# Test 5: the command says how the caps are enforced (plan.md, tasks.md T6): validate the
+# values, record the start time and caps, and check before each round and after each reviewer.
+has() { grep -q -F -- "$2" "$1"; }
+check "case5_caps_validated_as_positive_integers" has "$CMD" 'Check that every value is a positive integer.'
+check "case5_caps_stop_on_invalid_value" has "$CMD" 'stop with an error that names the key'
+check "case5_start_time_and_caps_recorded" has "$CMD" 'Record the start time and the caps in effect in `metrics.md`'
+check "case5_caps_checked_each_round_and_reviewer" has "$CMD" 'Check the caps before each round and again each time a reviewer returns.'
+check "case5_parallel_overshoot_reported" has "$CMD" 'overshoot'
+
+# Test 6: the spec edge cases for clean rounds, repeats, read-only reviewers and fixes
+check "case6_unresolved_blocker_blocks_clean" has "$CMD" 'still not clean while the ledger holds an unresolved BLOCKER'
+check "case6_fix_that_adds_should_fix_is_new" has "$CMD" 'introduces a new SHOULD-FIX is logged as a new finding'
+check "case6_rejected_repeat_with_new_evidence" has "$CMD" 'If it comes with new evidence, log it as a fresh finding'
+check "case6_repeat_of_column_named" has "$CMD" 'in the `Repeat of` column'
+check "case6_reviewer_source_change_not_accepted" has "$CMD" 'the change is not accepted as part of the round.'
+check "case6_reviewer_source_change_is_a_finding" has "$CMD" "Report it as a finding against the reviewer's brief."
+
+# Test 7: the reviewer prompt carries the same rules
+REVIEW="$ROOT/.ai-workflow/prompts/06-review.md"
+check "case7_review_unresolved_blocker" has "$REVIEW" 'unresolved BLOCKER'
+check "case7_review_source_change_is_a_finding" has "$REVIEW" 'finding against your brief'
+check "case7_review_repeat_needs_new_evidence" has "$REVIEW" 'unless you have new evidence'
+
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ]; then
     exit 1

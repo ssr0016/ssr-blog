@@ -22,6 +22,17 @@ then the built-in defaults:
 
 Print the values in effect at the start of every run.
 
+Before round 1:
+- Check that every value is a positive integer. If one is not,
+  stop with an error that names the key, and do not start a round.
+- Record the start time and the caps in effect in `metrics.md` (Converge
+  table). Minutes are measured from that recorded start time.
+
+Check the caps before each round and again each time a reviewer returns.
+When a cap is reached, stop and report **Aborted**. Reviewers of one round run
+in parallel, so the token total can pass the cap before the check runs; report
+the overshoot instead of hiding it.
+
 The token cap counts everything spent on converge for this feature, all
 rounds and reviewers combined. Token usage is read from the agent session
 report. If that is unavailable, the field says `not tracked` and the
@@ -74,8 +85,12 @@ Every finding is BLOCKER, SHOULD-FIX, or NIT.
 A round is **clean** only if it has zero BLOCKER and zero SHOULD-FIX findings.
 NITs do not break a clean round but are still recorded.
 
+A round in which the reviewer finds nothing is
+still not clean while the ledger holds an unresolved BLOCKER.
+
 The feature is **Converged** only after two consecutive clean rounds. Any
-non-clean round resets the count to zero.
+non-clean round resets the count to zero. A fix from an earlier round that
+introduces a new SHOULD-FIX is logged as a new finding, and the count resets.
 
 ## Ledger
 
@@ -89,6 +104,10 @@ marks repeats. This is why round 4 can stay context-free.
 
 A finding already in the ledger is not raised again as new.
 
+A repeat of a rejected finding is marked as a repeat and ignored.
+If it comes with new evidence, log it as a fresh finding and name the old
+one in the `Repeat of` column.
+
 Every non-fixed SHOULD-FIX and NIT ends up in the feature `notes.md` with
 its disposition. Nothing is dropped silently.
 
@@ -96,6 +115,10 @@ its disposition. Nothing is dropped silently.
 
 During a round the reviewer changes nothing except the findings report, the
 ledger (`findings.md`), and `metrics.md`.
+
+If a reviewer changes a source file during a round,
+the change is not accepted as part of the round.
+Report it as a finding against the reviewer's brief.
 
 Fixes are made by the author between rounds, stay inside the scope of the
 change under review, and out-of-scope problems are recorded in `notes.md` as
