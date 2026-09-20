@@ -13,8 +13,8 @@ Feature name: $ARGUMENTS
 
 ## Caps
 
-Caps come from `.specify/converge.yaml` plus `~/.spec-kit/converge.yaml`.
-Defaults:
+Caps come from `.specify/converge.yaml`, then `~/.spec-kit/converge.yaml`,
+then the built-in defaults:
 
 - max_rounds: 4
 - max_minutes: 15

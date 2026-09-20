@@ -51,6 +51,17 @@ check "case2_max_tokens_matches_spec" test "$yaml_tokens" = "$spec_tokens"
 # Test 3: no non-ASCII bytes
 check "case3_ascii_only" bash -c "! LC_ALL=C grep -qP '[^\\x00-\\x7F]' \"$YAML\""
 
+# Test 4: the converge command states cap precedence as repo, then home, then
+# defaults (spec behavior 12, ADR 0006). "plus" is not an order.
+CMD="$ROOT/.claude/commands/speckit-converge.md"
+caps_line=$(grep -m1 '^Caps come from' "$CMD")
+caps_next=$(grep -m1 -A1 '^Caps come from' "$CMD" | tail -n 1)
+pat_order='.specify/converge.yaml`, then `~/.spec-kit/converge.yaml`'
+
+check "case4_caps_repo_then_home" bash -c 'printf "%s\n" "$1" | grep -q -F -- "$2"' _ "$caps_line" "$pat_order"
+check "case4_caps_no_plus" bash -c '! printf "%s\n" "$1" | grep -q -w plus' _ "$caps_line"
+check "case4_caps_defaults_last" bash -c 'printf "%s\n" "$1" | grep -q "^then the built-in defaults"' _ "$caps_next"
+
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ]; then
     exit 1
