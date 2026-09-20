@@ -38,7 +38,6 @@ state, a command output -- not to intent.
 If the check fails, do not write the claim. Show the failure to the user
 immediately.
 
-
 ## Writing files
 
 Write files through `.specify/scripts/writefile.sh` or the agent's file tool.

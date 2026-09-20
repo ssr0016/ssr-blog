@@ -103,8 +103,8 @@ known issues.
 
 ## Empty range
 
-If the current branch equals main and a plain diff is empty, say the range is
-(empty and ask for an explicit range. Do not report Converged.
+If the current branch equals main and a plain diff is empty, say the range is empty
+and ask for an explicit range. Do not report Converged.
 
 ## Interrupted or capped mid-round
 
@@ -121,7 +121,6 @@ End every run with:
 - Status: Converged | Not Converged | Aborted
 - Consecutive-clean count
 - Stop condition that fired (two consecutive clean / rounds cap / minutes cap / tokens cap / interrupt / empty range)
-
 - Open findings still unresolved, if any
 
 An Aborted run hands the open findings to you for a decision and does not claim
