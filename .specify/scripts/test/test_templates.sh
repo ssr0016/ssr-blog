@@ -44,6 +44,18 @@ check "findings_behavior_7_ledger" grep -qF "Ledger" "$F"
 check "findings_behavior_7_columns" bash -c "grep -qE '\\| Round \\| Severity \\| Summary \\| Disposition \\| Reason \\| Repeat of \\|' '$F'"
 check "findings_behavior_13_status" grep -qF "Stop condition" "$F"
 
+# findings.md Reviewer brief options follow the fixed rotation (spec behavior 2), in both copies
+for tpl in "$TPL_A" "$TPL_B"; do
+    tag="$(basename "$(dirname "$tpl")")"
+    tag="${tag#.}"
+    brief=$(grep -m1 -F 'Reviewer brief:' "$tpl/findings.md")
+    check "findings_brief_round1_${tag}" bash -c 'printf "%s\n" "$1" | grep -q -F "Round 1: spec conformance and rules/security"' _ "$brief"
+    check "findings_brief_round2_${tag}" bash -c 'printf "%s\n" "$1" | grep -q -F "Round 2: fix verification, then general"' _ "$brief"
+    check "findings_brief_round3_${tag}" bash -c 'printf "%s\n" "$1" | grep -q -F "Round 3: adversarial and test quality"' _ "$brief"
+    check "findings_brief_round4_${tag}" bash -c 'printf "%s\n" "$1" | grep -q -F "Round 4: no-context full review"' _ "$brief"
+    check "findings_brief_no_round1_general_${tag}" bash -c '! printf "%s\n" "$1" | grep -q -F "Round 1: general"' _ "$brief"
+done
+
 # checklist.md has evidence rule
 check "checklist_evidence_rule" grep -qF "Evidence rule" "$C"
 

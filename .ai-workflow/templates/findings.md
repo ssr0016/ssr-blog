@@ -12,7 +12,7 @@ Report and ledger for converge. One report per round, plus a running ledger.
 
 - **Range reviewed:** [commit range or working tree, e.g., a1b2c3d..e4f5g6h]
 - **Spec reviewed:** [path to spec.md and its revision, e.g., .specify/specs/NNN-x/spec.md rev N]
-- **Reviewer brief:** [Round 1: general | Round 2: fix verification | Round 3: adversarial | Round 4: no-context full review]
+- **Reviewer brief:** [Round 1: spec conformance and rules/security (two reviewers) | Round 2: fix verification, then general | Round 3: adversarial and test quality | Round 4: no-context full review]
 - **Findings:**
 
 | # | Severity | Summary | Disposition | Reason | Repeat of |
