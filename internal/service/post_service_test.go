@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -41,6 +42,12 @@ func requireAppError(t *testing.T, err error, code apperror.Code, status int) *a
 // (0 if the series does not exist yet).
 func createWritesTotal(t *testing.T) float64 {
 	t.Helper()
+	return writesTotal(t, "create")
+}
+
+// writesTotal reads blog_post_writes_total{operation=op} (0 if the series does not exist yet).
+func writesTotal(t *testing.T, op string) float64 {
+	t.Helper()
 	families, err := prometheus.DefaultGatherer.Gather()
 	if err != nil {
 		t.Fatalf("gather: %v", err)
@@ -51,7 +58,7 @@ func createWritesTotal(t *testing.T) float64 {
 		}
 		for _, m := range mf.GetMetric() {
 			for _, lp := range m.GetLabel() {
-				if lp.GetName() == "operation" && lp.GetValue() == "create" {
+				if lp.GetName() == "operation" && lp.GetValue() == op {
 					return m.GetCounter().GetValue()
 				}
 			}
@@ -742,5 +749,289 @@ func TestPostService_ListAdmin_RepoErrorBecomesInternalWithoutLeaking(t *testing
 	}
 	if !errors.Is(err, cause) {
 		t.Error("cause must stay attached for server-side logging")
+	}
+}
+
+// ============================================================
+// Update
+// ============================================================
+
+var (
+	t1 = fixedNow
+	t2 = fixedNow.Add(time.Hour)
+	t3 = fixedNow.Add(2 * time.Hour)
+)
+
+// seedForUpdate creates a post through the service at time at, with the given status.
+func seedForUpdate(t *testing.T, repo repository.PostRepository, title, status string, at time.Time) *model.Post {
+	t.Helper()
+	svc := NewPostService(repo)
+	svc.clock = func() time.Time { return at }
+	created, err := svc.Create(context.Background(), model.CreatePostRequest{Title: title, Content: "old body", Status: status})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	return created
+}
+
+func updateReq(status string) model.UpdatePostRequest {
+	return model.UpdatePostRequest{Title: "Edited Title", Content: "new body", Excerpt: "new excerpt", Status: status}
+}
+
+func TestPostService_Update_PublishedAtTransitions(t *testing.T) {
+	tests := []struct {
+		name        string
+		from, to    string
+		seedAt      time.Time // clock when the post was created
+		updateAt    time.Time // clock when it is edited
+		wantNil     bool
+		wantAt      time.Time
+		wantChange  PostTransition
+		wantPublish float64 // expected increments of the publish counter
+		wantUnpub   float64 // expected increments of the unpublish counter
+	}{
+		{"draft to published stamps the clock", model.PostStatusDraft, model.PostStatusPublished, t1, t2, false, t2, TransitionPublished, 1, 0},
+		{"published to published keeps the original", model.PostStatusPublished, model.PostStatusPublished, t1, t2, false, t1, TransitionNone, 0, 0},
+		{"published to draft clears it", model.PostStatusPublished, model.PostStatusDraft, t1, t2, true, time.Time{}, TransitionUnpublished, 0, 1},
+		{"draft to draft stays empty", model.PostStatusDraft, model.PostStatusDraft, t1, t2, true, time.Time{}, TransitionNone, 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := repository.NewMockPostRepo()
+			seeded := seedForUpdate(t, repo, "Some Post", tt.from, tt.seedAt)
+			svc := newTestPostService(repo)
+			svc.clock = func() time.Time { return tt.updateAt }
+			publishBefore, unpubBefore := writesTotal(t, "publish"), writesTotal(t, "unpublish")
+
+			got, change, err := svc.Update(context.Background(), seeded.ID, updateReq(tt.to))
+			if err != nil {
+				t.Fatalf("Update() error = %v", err)
+			}
+
+			if tt.wantNil {
+				if got.PublishedAt != nil {
+					t.Errorf("published_at = %v, want nil", got.PublishedAt)
+				}
+			} else if got.PublishedAt == nil || !got.PublishedAt.Equal(tt.wantAt) {
+				t.Errorf("published_at = %v, want %v", got.PublishedAt, tt.wantAt)
+			}
+			if change != tt.wantChange {
+				t.Errorf("transition = %v, want %v", change, tt.wantChange)
+			}
+			if d := writesTotal(t, "publish") - publishBefore; d != tt.wantPublish {
+				t.Errorf("publish counter moved by %v, want %v", d, tt.wantPublish)
+			}
+			if d := writesTotal(t, "unpublish") - unpubBefore; d != tt.wantUnpub {
+				t.Errorf("unpublish counter moved by %v, want %v", d, tt.wantUnpub)
+			}
+
+			stored, _ := repo.GetByID(context.Background(), seeded.ID)
+			if (stored.PublishedAt == nil) != tt.wantNil {
+				t.Errorf("stored published_at = %v, wantNil = %v", stored.PublishedAt, tt.wantNil)
+			}
+		})
+	}
+}
+
+func TestPostService_Update_RepublishGetsANewTimestampNotTheOldOne(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	seeded := seedForUpdate(t, repo, "Flip Flop", model.PostStatusPublished, t1)
+	svc := newTestPostService(repo)
+
+	svc.clock = func() time.Time { return t2 }
+	if _, _, err := svc.Update(context.Background(), seeded.ID, updateReq(model.PostStatusDraft)); err != nil {
+		t.Fatalf("unpublish: %v", err)
+	}
+	svc.clock = func() time.Time { return t3 }
+	got, change, err := svc.Update(context.Background(), seeded.ID, updateReq(model.PostStatusPublished))
+	if err != nil {
+		t.Fatalf("republish: %v", err)
+	}
+
+	if got.PublishedAt == nil || !got.PublishedAt.Equal(t3) {
+		t.Errorf("published_at = %v, want the new clock %v, not the original %v", got.PublishedAt, t3, t1)
+	}
+	if change != TransitionPublished {
+		t.Errorf("transition = %v, want TransitionPublished", change)
+	}
+}
+
+func TestPostService_Update_EditingAPublishedPostKeepsItsPublishedAtEvenWithAllFieldsChanged(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	seeded := seedForUpdate(t, repo, "Stable Date", model.PostStatusPublished, t1)
+	svc := newTestPostService(repo)
+	svc.clock = func() time.Time { return t3 }
+
+	got, _, err := svc.Update(context.Background(), seeded.ID, model.UpdatePostRequest{
+		Title: "Totally Different", Content: "other", Excerpt: "other", CoverImageURL: "https://example.com/x.png", Status: model.PostStatusPublished,
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if got.PublishedAt == nil || !got.PublishedAt.Equal(t1) {
+		t.Errorf("published_at = %v, want unchanged %v", got.PublishedAt, t1)
+	}
+}
+
+func TestPostService_Update_SlugNeverChanges(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	seeded := seedForUpdate(t, repo, "Original Title", model.PostStatusDraft, t1)
+	svc := newTestPostService(repo)
+
+	got, _, err := svc.Update(context.Background(), seeded.ID, updateReq(model.PostStatusDraft))
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if got.Title != "Edited Title" {
+		t.Fatalf("title = %q, the edit did not apply", got.Title)
+	}
+	if got.Slug != "original-title" {
+		t.Errorf("slug = %q, want it frozen at original-title", got.Slug)
+	}
+}
+
+func TestPostService_Update_AppliesEditableFieldsAndKeepsIdentity(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	seeded := seedForUpdate(t, repo, "Identity", model.PostStatusDraft, t1)
+	svc := newTestPostService(repo)
+
+	got, _, err := svc.Update(context.Background(), seeded.ID, model.UpdatePostRequest{
+		Title: "New T", Content: "New C", Excerpt: "New E", CoverImageURL: "https://example.com/n.png", Status: model.PostStatusDraft,
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if got.ID != seeded.ID || got.Title != "New T" || got.Content != "New C" || got.Excerpt != "New E" || got.CoverImageURL != "https://example.com/n.png" {
+		t.Errorf("Update() = %+v", got)
+	}
+}
+
+func TestPostService_Update_RecordsUpdateMetricOnSuccessOnly(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	seeded := seedForUpdate(t, repo, "Counted", model.PostStatusDraft, t1)
+	svc := newTestPostService(repo)
+	before := writesTotal(t, "update")
+
+	if _, _, err := svc.Update(context.Background(), seeded.ID, updateReq(model.PostStatusDraft)); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if d := writesTotal(t, "update") - before; d != 1 {
+		t.Errorf("update counter moved by %v, want 1", d)
+	}
+
+	// Failures must not count.
+	_, _, _ = svc.Update(context.Background(), 99999, updateReq(model.PostStatusDraft))
+	_, _, _ = svc.Update(context.Background(), seeded.ID, updateReq("bogus"))
+	if d := writesTotal(t, "update") - before; d != 1 {
+		t.Errorf("update counter moved by %v after failures, want still 1", d)
+	}
+}
+
+func TestPostService_Update_MissingAndDeletedAreNotFound(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	gone := seedForUpdate(t, repo, "Gone", model.PostStatusDraft, t1)
+	repo.MarkDeleted(gone.ID)
+	svc := newTestPostService(repo)
+
+	for name, id := range map[string]int64{"missing": 424242, "deleted": gone.ID} {
+		got, change, err := svc.Update(context.Background(), id, updateReq(model.PostStatusDraft))
+		if got != nil || change != TransitionNone {
+			t.Errorf("%s: got %+v, %v, want nothing", name, got, change)
+		}
+		_ = requireAppError(t, err, apperror.CodeNotFound, http.StatusNotFound)
+	}
+}
+
+func TestPostService_Update_RejectsUnknownStatusWithoutWriting(t *testing.T) {
+	for _, status := range []string{"", "archived", "Published", " draft"} {
+		repo := repository.NewMockPostRepo()
+		seeded := seedForUpdate(t, repo, "Guarded", model.PostStatusDraft, t1)
+		repo.UpdateFunc = func(context.Context, model.Post) (*model.Post, error) {
+			t.Errorf("status %q: repo.Update must not be called", status)
+			return nil, nil
+		}
+		svc := newTestPostService(repo)
+
+		_, _, err := svc.Update(context.Background(), seeded.ID, updateReq(status))
+		_ = requireAppError(t, err, apperror.CodeValidation, http.StatusUnprocessableEntity)
+	}
+}
+
+// The post can be deleted by another request between the service's read and the repository's write.
+func TestPostService_Update_RepoNotFoundAfterReadIsStillNotFound(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	seeded := seedForUpdate(t, repo, "Racy", model.PostStatusDraft, t1)
+	repo.UpdateFunc = func(context.Context, model.Post) (*model.Post, error) {
+		return nil, fmt.Errorf("update post: %w", repository.ErrPostNotFound)
+	}
+	svc := newTestPostService(repo)
+	before := writesTotal(t, "update")
+
+	_, _, err := svc.Update(context.Background(), seeded.ID, updateReq(model.PostStatusDraft))
+
+	_ = requireAppError(t, err, apperror.CodeNotFound, http.StatusNotFound)
+	if writesTotal(t, "update") != before {
+		t.Error("a failed update must not be counted")
+	}
+}
+
+func TestPostService_Update_RepoErrorsBecomeInternalWithoutLeaking(t *testing.T) {
+	cause := errors.New("db down secret-detail")
+
+	t.Run("read fails", func(t *testing.T) {
+		repo := repository.NewMockPostRepo()
+		repo.GetByIDFunc = func(context.Context, int64) (*model.Post, error) { return nil, cause }
+		svc := newTestPostService(repo)
+
+		_, _, err := svc.Update(context.Background(), 1, updateReq(model.PostStatusDraft))
+
+		appErr := requireAppError(t, err, apperror.CodeInternal, http.StatusInternalServerError)
+		if strings.Contains(appErr.Message, "secret-detail") {
+			t.Errorf("client-facing message leaks the cause: %q", appErr.Message)
+		}
+		if !errors.Is(err, cause) {
+			t.Error("cause must stay attached for server-side logging")
+		}
+	})
+
+	t.Run("write fails", func(t *testing.T) {
+		repo := repository.NewMockPostRepo()
+		seeded := seedForUpdate(t, repo, "Write Fail", model.PostStatusDraft, t1)
+		repo.UpdateFunc = func(context.Context, model.Post) (*model.Post, error) { return nil, cause }
+		svc := newTestPostService(repo)
+		before := writesTotal(t, "update")
+
+		_, _, err := svc.Update(context.Background(), seeded.ID, updateReq(model.PostStatusDraft))
+
+		appErr := requireAppError(t, err, apperror.CodeInternal, http.StatusInternalServerError)
+		if strings.Contains(appErr.Message, "secret-detail") {
+			t.Errorf("client-facing message leaks the cause: %q", appErr.Message)
+		}
+		if !errors.Is(err, cause) {
+			t.Error("cause must stay attached for server-side logging")
+		}
+		if writesTotal(t, "update") != before {
+			t.Error("a failed update must not be counted")
+		}
+	})
+}
+
+// The real repository ignores the slug on update, but the service must still hand it the stored
+// one so the two layers agree and a repo that did write it could never rename a post.
+func TestPostService_Update_PassesTheStoredSlugToTheRepo(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	seeded := seedForUpdate(t, repo, "Original Title", model.PostStatusDraft, t1)
+	var sent model.Post
+	repo.UpdateFunc = func(_ context.Context, p model.Post) (*model.Post, error) {
+		sent = p
+		return &p, nil
+	}
+	svc := newTestPostService(repo)
+
+	if _, _, err := svc.Update(context.Background(), seeded.ID, updateReq(model.PostStatusDraft)); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if sent.Slug != "original-title" || sent.ID != seeded.ID {
+		t.Errorf("repo received id=%d slug=%q, want id=%d slug=original-title", sent.ID, sent.Slug, seeded.ID)
 	}
 }

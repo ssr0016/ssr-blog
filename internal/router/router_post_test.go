@@ -146,6 +146,24 @@ func (h *harness) createPost(t *testing.T, actor int64, title string) *httptest.
 	})
 }
 
+// updatePost is the standard admin edit of the seeded post (id 1): valid session and valid CSRF token.
+func (h *harness) updatePost(t *testing.T, actor int64, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	return h.do(t, call{method: http.MethodPut, path: "/api/v1/admin/posts/1", actor: actor, csrf: csrfToken, body: body})
+}
+
+const routerUpdateBody = `{"title":"Edited Through Router","content":"edited","status":"draft"}`
+
+// seededUnchanged reports whether post 1 still has its original title, content and status.
+func (h *harness) seededUnchanged(t *testing.T) bool {
+	t.Helper()
+	got, err := h.posts.GetByID(context.Background(), 1)
+	if err != nil || got == nil {
+		t.Fatalf("GetByID(1) = %v, %v", got, err)
+	}
+	return got.Title == seededTitle && got.Content == "seeded body" && got.Status == model.PostStatusDraft
+}
+
 // nothingCreated reports whether the only stored post is still the seeded one (id 1).
 func (h *harness) nothingCreated(t *testing.T) bool {
 	t.Helper()
@@ -231,6 +249,7 @@ func TestAdminPostRoutes_RBACMatrix(t *testing.T) {
 		{"GET /admin/posts/:id", http.MethodGet, "/api/v1/admin/posts/1", "", http.StatusOK},
 		{"GET /admin/posts", http.MethodGet, "/api/v1/admin/posts", "", http.StatusOK},
 		{"GET /admin/posts?status=draft", http.MethodGet, "/api/v1/admin/posts?status=draft", "", http.StatusOK},
+		{"PUT /admin/posts/:id", http.MethodPut, "/api/v1/admin/posts/1", `{"title":"Edited Title","content":"body","status":"published"}`, http.StatusOK},
 	}
 	actors := []struct {
 		name       string
@@ -410,6 +429,184 @@ func TestAdminPostRoutes_AuditActorComesFromTheSession(t *testing.T) {
 	}
 	if got["slug"] != "audited-through-router" {
 		t.Errorf("slug = %v", got["slug"])
+	}
+}
+
+// ============================================================
+// PUT /admin/posts/:id: CSRF, rate limit, audit, denied writes
+// ============================================================
+
+// Denied callers must not be able to edit anything. The seeded post is the witness.
+func TestAdminPostRoutes_DeniedUpdatesChangeNothing(t *testing.T) {
+	for _, a := range []struct {
+		name string
+		id   int64
+		want int
+	}{
+		{"anonymous", anonymous, http.StatusUnauthorized},
+		{"ghost session", ghostID, http.StatusUnauthorized},
+		{"user", userID, http.StatusForbidden},
+		{"editor", editorID, http.StatusForbidden},
+		{"no role", noRoleID, http.StatusForbidden},
+	} {
+		t.Run(a.name, func(t *testing.T) {
+			h := newHarness(t)
+
+			rec := h.updatePost(t, a.id, `{"title":"Hijacked","content":"hijacked","status":"published"}`)
+
+			if rec.Code != a.want {
+				t.Fatalf("status = %d, want %d\nbody: %s", rec.Code, a.want, rec.Body.String())
+			}
+			if !h.seededUnchanged(t) {
+				t.Error("a denied update must not change the post")
+			}
+		})
+	}
+
+	t.Run("admin does change it, proving the route is really mounted", func(t *testing.T) {
+		h := newHarness(t)
+		rec := h.updatePost(t, adminID, routerUpdateBody)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200\nbody: %s", rec.Code, rec.Body.String())
+		}
+		if h.seededUnchanged(t) {
+			t.Error("the admin's update was not applied")
+		}
+	})
+}
+
+func TestAdminPostRoutes_UpdateCSRF(t *testing.T) {
+	tests := []struct {
+		name string
+		call call
+	}{
+		{"admin, header missing", call{actor: adminID, csrf: ""}},
+		{"admin, header does not match the cookie", call{actor: adminID, csrf: "another-token"}},
+		{"anonymous, header missing (CSRF is checked before auth)", call{actor: anonymous, csrf: ""}},
+		{"editor, header missing", call{actor: editorID, csrf: ""}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			c := tt.call
+			c.method, c.path, c.body = http.MethodPut, "/api/v1/admin/posts/1", routerUpdateBody
+
+			rec := h.do(t, c)
+
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403\nbody: %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "CSRF") {
+				t.Errorf("want a CSRF rejection, got: %s", rec.Body.String())
+			}
+			if !h.seededUnchanged(t) {
+				t.Error("nothing may change without a valid CSRF token")
+			}
+		})
+	}
+
+	t.Run("admin with a matching token succeeds", func(t *testing.T) {
+		h := newHarness(t)
+		if rec := h.updatePost(t, adminID, routerUpdateBody); rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200\nbody: %s", rec.Code, rec.Body.String())
+		}
+	})
+}
+
+func TestAdminPostRoutes_RateLimitOnUpdate(t *testing.T) {
+	h := newHarness(t)
+
+	// Burst is 10: the first ten writes pass, the eleventh is rejected.
+	for i := 1; i <= 10; i++ {
+		rec := h.updatePost(t, adminID, `{"title":"Edit `+strings.Repeat("x", i)+`","content":"c","status":"draft"}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: status = %d, want 200\nbody: %s", i, rec.Code, rec.Body.String())
+		}
+	}
+	rec := h.updatePost(t, adminID, `{"title":"Throttled","content":"c","status":"draft"}`)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("request 11: status = %d, want 429\nbody: %s", rec.Code, rec.Body.String())
+	}
+	if got := errorCode(t, rec); got != "RATE_LIMIT_EXCEEDED" {
+		t.Errorf("error code = %q", got)
+	}
+	stored, _ := h.posts.GetByID(context.Background(), 1)
+	if stored.Title == "Throttled" {
+		t.Error("the throttled request must not be applied")
+	}
+
+	// Reads are not limited by the write limiter.
+	if read := h.do(t, call{method: http.MethodGet, path: "/api/v1/admin/posts/1", actor: adminID}); read.Code != http.StatusOK {
+		t.Errorf("GET after the burst: status = %d, want 200", read.Code)
+	}
+}
+
+// Edits and creates draw from the same per-client write budget.
+func TestAdminPostRoutes_UpdatesAndCreatesShareTheWriteBudget(t *testing.T) {
+	h := newHarness(t)
+
+	for i := 1; i <= 5; i++ {
+		if rec := h.createPost(t, adminID, "Shared"); rec.Code != http.StatusCreated {
+			t.Fatalf("create %d: status = %d", i, rec.Code)
+		}
+		if rec := h.updatePost(t, adminID, routerUpdateBody); rec.Code != http.StatusOK {
+			t.Fatalf("update %d: status = %d", i, rec.Code)
+		}
+	}
+	if rec := h.updatePost(t, adminID, routerUpdateBody); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("11th write: status = %d, want 429", rec.Code)
+	}
+}
+
+// The limiter sits after auth on the route, so rejected callers cannot burn the admin's budget.
+func TestAdminPostRoutes_DeniedUpdatesDoNotConsumeRateLimit(t *testing.T) {
+	h := newHarness(t)
+
+	for i := range 30 {
+		if rec := h.updatePost(t, anonymous, routerUpdateBody); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("anonymous request %d: status = %d, want 401", i, rec.Code)
+		}
+		if rec := h.updatePost(t, editorID, routerUpdateBody); rec.Code != http.StatusForbidden {
+			t.Fatalf("editor request %d: status = %d, want 403", i, rec.Code)
+		}
+	}
+	for i := 1; i <= 10; i++ {
+		if rec := h.updatePost(t, adminID, routerUpdateBody); rec.Code != http.StatusOK {
+			t.Fatalf("admin request %d: status = %d, want 200 (budget was consumed by denied callers)", i, rec.Code)
+		}
+	}
+}
+
+func TestAdminPostRoutes_UpdateAuditActorComesFromTheSession(t *testing.T) {
+	logs := captureLogs(t)
+	h := newHarness(t)
+
+	// Denied edits leave no audit trail entry.
+	h.updatePost(t, anonymous, routerUpdateBody)
+	h.updatePost(t, editorID, routerUpdateBody)
+	h.do(t, call{method: http.MethodPut, path: "/api/v1/admin/posts/1", actor: adminID, body: routerUpdateBody}) // no CSRF
+	if got := len(logs.auditRecords(t)); got != 0 {
+		t.Fatalf("denied requests produced %d audit records, want 0", got)
+	}
+
+	rec := h.updatePost(t, adminID, `{"title":"Going Live","content":"c","status":"published"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+
+	records := logs.auditRecords(t)
+	if len(records) != 1 {
+		t.Fatalf("got %d audit records, want 1: %v", len(records), records)
+	}
+	got := records[0]
+	if got["audit"] != true || got["action"] != "post.publish" {
+		t.Errorf("record = %v", got)
+	}
+	if got["actor_user_id"] != float64(adminID) {
+		t.Errorf("actor_user_id = %v, want %d", got["actor_user_id"], adminID)
+	}
+	if got["post_id"] != float64(1) || got["slug"] != "seeded-post-title" {
+		t.Errorf("post_id = %v, slug = %v", got["post_id"], got["slug"])
 	}
 }
 

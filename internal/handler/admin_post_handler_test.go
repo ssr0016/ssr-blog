@@ -57,6 +57,7 @@ func newPostEnv(t *testing.T) *postEnv {
 	})
 	e.POST("/admin/posts", h.Create)
 	e.GET("/admin/posts", h.List)
+	e.PUT("/admin/posts/:id", h.Update)
 	e.GET("/admin/posts/:id", h.Get)
 
 	return &postEnv{ctx: t.Context(), handler: sm.LoadAndSave(e), repo: repo}
@@ -82,6 +83,10 @@ func (env *postEnv) list(query string) *httptest.ResponseRecorder {
 		path += "?" + query
 	}
 	return env.do(http.MethodGet, path, "")
+}
+
+func (env *postEnv) put(id, body string) *httptest.ResponseRecorder {
+	return env.do(http.MethodPut, "/admin/posts/"+id, body)
 }
 
 func (env *postEnv) get(id string) *httptest.ResponseRecorder {
@@ -736,5 +741,253 @@ func TestAdminPostHandler_List_WritesNoAuditEvent(t *testing.T) {
 
 	if got := logs.auditRecords(t); len(got) != 0 {
 		t.Errorf("audit records = %v, want none for a read", got)
+	}
+}
+
+// ============================================================
+// PUT /admin/posts/:id
+// ============================================================
+
+const validUpdate = `{"title":"Edited Title","content":"edited body","excerpt":"edited","cover_image_url":"https://example.com/e.png","status":"draft"}`
+
+// seedDraft creates a draft titled "Original Title" (id 1 in a fresh env).
+func seedDraft(t *testing.T, env *postEnv) map[string]any {
+	t.Helper()
+	rec := env.post(`{"title":"Original Title","content":"original body"}`)
+	requireStatus(t, rec, http.StatusCreated, "")
+	return decodeMap(t, rec)
+}
+
+func TestAdminPostHandler_Update_Success(t *testing.T) {
+	env := newPostEnv(t)
+	created := seedDraft(t, env)
+
+	rec := env.put("1", validUpdate)
+
+	requireStatus(t, rec, http.StatusOK, "")
+	if ct := rec.Header().Get(echo.HeaderContentType); !strings.HasPrefix(ct, echo.MIMEApplicationJSON) {
+		t.Errorf("Content-Type = %q", ct)
+	}
+	body := decodeMap(t, rec)
+	for k, v := range map[string]any{
+		"id": created["id"], "title": "Edited Title", "slug": "original-title", "content": "edited body",
+		"excerpt": "edited", "cover_image_url": "https://example.com/e.png", "status": "draft",
+	} {
+		if body[k] != v {
+			t.Errorf("%s = %v, want %v", k, body[k], v)
+		}
+	}
+	if body["published_at"] != nil {
+		t.Errorf("published_at = %v, want null for a draft", body["published_at"])
+	}
+	if _, present := body["deleted_at"]; present {
+		t.Error("deleted_at must never be exposed")
+	}
+
+	// The change is really stored.
+	got := decodeMap(t, env.get("1"))
+	if got["title"] != "Edited Title" || got["slug"] != "original-title" {
+		t.Errorf("stored post = %v", got)
+	}
+}
+
+func TestAdminPostHandler_Update_SlugInBodyIsIgnored(t *testing.T) {
+	env := newPostEnv(t)
+	seedDraft(t, env)
+
+	rec := env.put("1", `{"title":"Edited Title","content":"c","status":"draft","slug":"hacked","id":999,"published_at":"2020-01-01T00:00:00Z","deleted_at":"2020-01-01T00:00:00Z"}`)
+
+	requireStatus(t, rec, http.StatusOK, "")
+	body := decodeMap(t, rec)
+	if body["slug"] != "original-title" {
+		t.Errorf("slug = %v, want original-title: a slug never changes", body["slug"])
+	}
+	if body["id"] != float64(1) {
+		t.Errorf("id = %v, the body must not be able to change it", body["id"])
+	}
+	if body["published_at"] != nil {
+		t.Errorf("published_at = %v, a client-supplied value must be ignored", body["published_at"])
+	}
+	if got := decodeMap(t, env.get("1")); got["slug"] != "original-title" {
+		t.Errorf("stored slug = %v", got["slug"])
+	}
+	if hacked, _ := env.repo.GetPublishedBySlug(context.Background(), "hacked"); hacked != nil {
+		t.Error("nothing may be reachable under the client-supplied slug")
+	}
+}
+
+func TestAdminPostHandler_Update_PublishStampsAndUnpublishClearsPublishedAt(t *testing.T) {
+	env := newPostEnv(t)
+	seedDraft(t, env)
+
+	pub := decodeMap(t, env.put("1", `{"title":"T","content":"c","status":"published"}`))
+	if s, _ := pub["published_at"].(string); s == "" || pub["status"] != "published" {
+		t.Fatalf("after publish: status = %v, published_at = %v", pub["status"], pub["published_at"])
+	}
+	stamp := pub["published_at"]
+
+	edit := decodeMap(t, env.put("1", `{"title":"T edited","content":"c","status":"published"}`))
+	if edit["published_at"] != stamp {
+		t.Errorf("editing a published post moved published_at: %v -> %v", stamp, edit["published_at"])
+	}
+
+	unpub := decodeMap(t, env.put("1", `{"title":"T","content":"c","status":"draft"}`))
+	if unpub["published_at"] != nil || unpub["status"] != "draft" {
+		t.Errorf("after unpublish: status = %v, published_at = %v", unpub["status"], unpub["published_at"])
+	}
+}
+
+func TestAdminPostHandler_Update_InvalidIDIs400(t *testing.T) {
+	env := newPostEnv(t)
+	seedDraft(t, env)
+
+	for _, id := range []string{"abc", "0", "-1", "1.5", "99999999999999999999"} {
+		rec := env.put(id, validUpdate)
+		requireStatus(t, rec, http.StatusBadRequest, "BAD_REQUEST")
+	}
+	if got := decodeMap(t, env.get("1")); got["title"] != "Original Title" {
+		t.Errorf("a rejected request changed the post: %v", got["title"])
+	}
+}
+
+func TestAdminPostHandler_Update_UnknownAndDeletedAre404(t *testing.T) {
+	env := newPostEnv(t)
+	seedDraft(t, env)
+	requireStatus(t, env.put("999", validUpdate), http.StatusNotFound, "NOT_FOUND")
+
+	env.repo.MarkDeleted(1)
+	requireStatus(t, env.put("1", validUpdate), http.StatusNotFound, "NOT_FOUND")
+}
+
+func TestAdminPostHandler_Update_ValidationFailuresAre422AndChangeNothing(t *testing.T) {
+	long := func(n int) string { return strings.Repeat("a", n) }
+	tests := []struct {
+		name string
+		body map[string]any
+	}{
+		{"missing title", map[string]any{"content": "c", "status": "draft"}},
+		{"empty title", map[string]any{"title": "", "content": "c", "status": "draft"}},
+		{"blank title", map[string]any{"title": "   ", "content": "c", "status": "draft"}},
+		{"title too long", map[string]any{"title": long(201), "content": "c", "status": "draft"}},
+		{"missing content", map[string]any{"title": "T", "status": "draft"}},
+		{"blank content", map[string]any{"title": "T", "content": " \n\t ", "status": "draft"}},
+		{"content too long", map[string]any{"title": "T", "content": long(100001), "status": "draft"}},
+		{"excerpt too long", map[string]any{"title": "T", "content": "c", "excerpt": long(501), "status": "draft"}},
+		{"cover url not http", map[string]any{"title": "T", "content": "c", "cover_image_url": "javascript:alert(1)", "status": "draft"}},
+		{"cover url too long", map[string]any{"title": "T", "content": "c", "cover_image_url": "https://example.com/" + long(2048), "status": "draft"}},
+		{"missing status", map[string]any{"title": "T", "content": "c"}},
+		{"empty status", map[string]any{"title": "T", "content": "c", "status": ""}},
+		{"unknown status", map[string]any{"title": "T", "content": "c", "status": "archived"}},
+		{"status wrong case", map[string]any{"title": "T", "content": "c", "status": "Published"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newPostEnv(t)
+			seedDraft(t, env)
+
+			rec := env.put("1", mustJSON(t, tt.body))
+
+			requireStatus(t, rec, http.StatusUnprocessableEntity, "VALIDATION_ERROR")
+			if got := decodeMap(t, env.get("1")); got["title"] != "Original Title" || got["content"] != "original body" {
+				t.Errorf("a rejected update changed the post: %v", got)
+			}
+		})
+	}
+}
+
+func TestAdminPostHandler_Update_MalformedBodyIs400(t *testing.T) {
+	env := newPostEnv(t)
+	seedDraft(t, env)
+
+	for _, body := range []string{`{"title":`, `not json`, `[1,2]`, ``} {
+		rec := env.put("1", body)
+		if rec.Code != http.StatusBadRequest && rec.Code != http.StatusUnprocessableEntity {
+			t.Errorf("body %q: status = %d, want a 4xx client error\n%s", body, rec.Code, rec.Body.String())
+		}
+	}
+	requireStatus(t, env.put("1", `{"title":`), http.StatusBadRequest, "BAD_REQUEST")
+}
+
+func TestAdminPostHandler_Update_RepoErrorIs500WithoutLeaking(t *testing.T) {
+	env := newPostEnv(t)
+	seedDraft(t, env)
+	env.repo.UpdateFunc = func(context.Context, model.Post) (*model.Post, error) {
+		return nil, errors.New("db down secret-detail")
+	}
+
+	rec := env.put("1", validUpdate)
+
+	requireStatus(t, rec, http.StatusInternalServerError, "INTERNAL_ERROR")
+	if strings.Contains(rec.Body.String(), "secret-detail") {
+		t.Errorf("response leaks the cause: %s", rec.Body.String())
+	}
+}
+
+func TestAdminPostHandler_Update_WritesAuditEventWithTheRightAction(t *testing.T) {
+	tests := []struct {
+		name       string
+		startLive  bool
+		body       string
+		wantAction string
+	}{
+		{"edit a draft", false, `{"title":"T2","content":"c","status":"draft"}`, "post.update"},
+		{"edit a published post", true, `{"title":"T2","content":"c","status":"published"}`, "post.update"},
+		{"publish a draft", false, `{"title":"T","content":"c","status":"published"}`, "post.publish"},
+		{"unpublish a published post", true, `{"title":"T","content":"c","status":"draft"}`, "post.unpublish"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newPostEnv(t)
+			status := "draft"
+			if tt.startLive {
+				status = "published"
+			}
+			requireStatus(t, env.post(`{"title":"T","content":"c","status":"`+status+`"}`), http.StatusCreated, "")
+			logs := captureLogs(t)
+
+			rec := env.put("1", tt.body)
+
+			requireStatus(t, rec, http.StatusOK, "")
+			records := logs.auditRecords(t)
+			if len(records) != 1 {
+				t.Fatalf("got %d audit records, want exactly 1: %v", len(records), records)
+			}
+			got := records[0]
+			if got["audit"] != true || got["level"] != "INFO" {
+				t.Errorf("audit = %v, level = %v", got["audit"], got["level"])
+			}
+			if got["action"] != tt.wantAction {
+				t.Errorf("action = %v, want %s", got["action"], tt.wantAction)
+			}
+			if got["actor_user_id"] != float64(testActorID) {
+				t.Errorf("actor_user_id = %v, want %d", got["actor_user_id"], testActorID)
+			}
+			if got["post_id"] != float64(1) || got["slug"] != "t" {
+				t.Errorf("post_id = %v, slug = %v", got["post_id"], got["slug"])
+			}
+			for _, forbidden := range []string{"content", "title", "excerpt"} {
+				if _, present := got[forbidden]; present {
+					t.Errorf("audit event must not carry %q", forbidden)
+				}
+			}
+		})
+	}
+}
+
+func TestAdminPostHandler_Update_NoAuditEventWithoutASuccessfulWrite(t *testing.T) {
+	env := newPostEnv(t)
+	seedDraft(t, env)
+	logs := captureLogs(t)
+
+	env.put("abc", validUpdate)                                     // bad id
+	env.put("999", validUpdate)                                     // not found
+	env.put("1", `{"title":`)                                       // malformed
+	env.put("1", `{"title":"","content":"c","status":"draft"}`)     // validation
+	env.put("1", `{"title":"T","content":"c","status":"archived"}`) // bad status
+	env.repo.UpdateFunc = func(context.Context, model.Post) (*model.Post, error) { return nil, errors.New("boom") }
+	env.put("1", validUpdate) // repository failure
+
+	if got := logs.auditRecords(t); len(got) != 0 {
+		t.Errorf("failed updates wrote %d audit records, want 0: %v", len(got), got)
 	}
 }

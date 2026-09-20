@@ -537,3 +537,138 @@ func TestPostRepo_ListAdmin_EmptyTable(t *testing.T) {
 	assert.NotNil(t, items)
 	assert.Empty(t, items)
 }
+
+// ============================================================
+// Update
+// ============================================================
+
+func TestPostRepo_Update_ReplacesEditableFieldsAndNeverTouchesSlug(t *testing.T) {
+	repo, _ := setupPostRepo(t)
+	ctx := context.Background()
+
+	created, err := repo.Create(ctx, newTestPost("original-slug"))
+	require.NoError(t, err)
+
+	publishedAt := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+	updated, err := repo.Update(ctx, model.Post{
+		ID:            created.ID,
+		Title:         "A Completely New Title",
+		Slug:          "hacked-slug", // must be ignored: a slug never changes after creation
+		Content:       "new **body**",
+		Excerpt:       "new excerpt",
+		CoverImageURL: "https://example.com/new.png",
+		Status:        model.PostStatusPublished,
+		PublishedAt:   &publishedAt,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+
+	assert.Equal(t, created.ID, updated.ID)
+	assert.Equal(t, "original-slug", updated.Slug, "returned row carries the stored slug")
+	assert.Equal(t, "A Completely New Title", updated.Title)
+	assert.Equal(t, "new **body**", updated.Content)
+	assert.Equal(t, "new excerpt", updated.Excerpt)
+	assert.Equal(t, "https://example.com/new.png", updated.CoverImageURL)
+	assert.Equal(t, model.PostStatusPublished, updated.Status)
+	require.NotNil(t, updated.PublishedAt)
+	assert.True(t, publishedAt.Equal(*updated.PublishedAt))
+	assert.True(t, created.CreatedAt.Equal(updated.CreatedAt), "created_at must not change")
+	assert.False(t, updated.UpdatedAt.Before(created.UpdatedAt), "updated_at must not go backwards")
+	assert.Nil(t, updated.DeletedAt)
+
+	// The stored row agrees, not just the RETURNING clause.
+	stored, err := repo.GetByID(ctx, created.ID)
+	require.NoError(t, err)
+	require.NotNil(t, stored)
+	assert.Equal(t, "original-slug", stored.Slug)
+	assert.Equal(t, "A Completely New Title", stored.Title)
+
+	// And the old slug still resolves, the hacked one never existed.
+	byOld, err := repo.GetPublishedBySlug(ctx, "original-slug")
+	require.NoError(t, err)
+	assert.NotNil(t, byOld)
+	byHacked, err := repo.GetPublishedBySlug(ctx, "hacked-slug")
+	require.NoError(t, err)
+	assert.Nil(t, byHacked)
+}
+
+func TestPostRepo_Update_UnpublishWritesNullPublishedAt(t *testing.T) {
+	repo, _ := setupPostRepo(t)
+	ctx := context.Background()
+
+	created, err := repo.Create(ctx, publishedPost("was-live", time.Now().UTC().Add(-time.Hour)))
+	require.NoError(t, err)
+	require.NotNil(t, created.PublishedAt)
+
+	updated, err := repo.Update(ctx, model.Post{
+		ID: created.ID, Title: created.Title, Content: created.Content,
+		Status: model.PostStatusDraft, PublishedAt: nil,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, model.PostStatusDraft, updated.Status)
+	assert.Nil(t, updated.PublishedAt, "a nil published_at must be stored as NULL")
+
+	list, total, err := repo.ListPublished(ctx, 1, 20)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), total)
+	assert.Empty(t, list, "an unpublished post leaves the public list")
+}
+
+func TestPostRepo_Update_MissingIDIsErrPostNotFound(t *testing.T) {
+	repo, _ := setupPostRepo(t)
+
+	got, err := repo.Update(context.Background(), model.Post{ID: 999999, Title: "T", Content: "C", Status: model.PostStatusDraft})
+
+	assert.Nil(t, got)
+	assert.True(t, errors.Is(err, ErrPostNotFound), "got %v", err)
+}
+
+func TestPostRepo_Update_SoftDeletedIsErrPostNotFoundAndRowIsUntouched(t *testing.T) {
+	repo, tdb := setupPostRepo(t)
+	ctx := context.Background()
+
+	created, err := repo.Create(ctx, newTestPost("deleted-one"))
+	require.NoError(t, err)
+	_, err = tdb.Pool.Exec(ctx, "UPDATE posts SET deleted_at = NOW() WHERE id = $1", created.ID)
+	require.NoError(t, err)
+
+	got, err := repo.Update(ctx, model.Post{ID: created.ID, Title: "Resurrected", Content: "C", Status: model.PostStatusDraft})
+
+	assert.Nil(t, got)
+	assert.True(t, errors.Is(err, ErrPostNotFound), "got %v", err)
+
+	var title string
+	require.NoError(t, tdb.Pool.QueryRow(ctx, "SELECT title FROM posts WHERE id = $1", created.ID).Scan(&title))
+	assert.Equal(t, created.Title, title, "a soft-deleted row must not be edited")
+}
+
+func TestPostRepo_Update_OnlyTheTargetRowChanges(t *testing.T) {
+	repo, _ := setupPostRepo(t)
+	ctx := context.Background()
+
+	target, err := repo.Create(ctx, newTestPost("target"))
+	require.NoError(t, err)
+	other, err := repo.Create(ctx, newTestPost("bystander"))
+	require.NoError(t, err)
+
+	_, err = repo.Update(ctx, model.Post{ID: target.ID, Title: "Edited", Content: "C", Status: model.PostStatusDraft})
+	require.NoError(t, err)
+
+	got, err := repo.GetByID(ctx, other.ID)
+	require.NoError(t, err)
+	assert.Equal(t, other.Title, got.Title)
+	assert.Equal(t, other.Content, got.Content)
+}
+
+func TestPostRepo_Update_InvalidStatusIsNotReportedAsNotFound(t *testing.T) {
+	repo, _ := setupPostRepo(t)
+	ctx := context.Background()
+	created, err := repo.Create(ctx, newTestPost("check-me"))
+	require.NoError(t, err)
+
+	_, err = repo.Update(ctx, model.Post{ID: created.ID, Title: "T", Content: "C", Status: "archived"})
+
+	require.Error(t, err, "the CHECK constraint must reject an unknown status")
+	assert.False(t, errors.Is(err, ErrPostNotFound), "got %v", err)
+}

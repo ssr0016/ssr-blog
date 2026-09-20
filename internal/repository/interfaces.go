@@ -79,6 +79,9 @@ type PostRepository interface {
 	// ListAdmin returns one page of non-deleted posts of any status, ordered by created_at DESC,
 	// id DESC, plus the total for the same filter. An empty status means all statuses.
 	ListAdmin(ctx context.Context, status string, page, limit int) ([]model.AdminPostSummary, int64, error)
+	// Update replaces the editable fields of a non-deleted post and never writes slug.
+	// A missing or soft-deleted id returns ErrPostNotFound.
+	Update(ctx context.Context, p model.Post) (*model.Post, error)
 }
 
 // Compile-time checks: implementations must satisfy interfaces.

@@ -228,6 +228,7 @@ type MockPostRepo struct {
 	ListPublishedFunc      func(ctx context.Context, page, limit int) ([]model.PostSummary, int64, error)
 	GetPublishedBySlugFunc func(ctx context.Context, slug string) (*model.Post, error)
 	ListAdminFunc          func(ctx context.Context, status string, page, limit int) ([]model.AdminPostSummary, int64, error)
+	UpdateFunc             func(ctx context.Context, p model.Post) (*model.Post, error)
 }
 
 // NewMockPostRepo creates a new mock post repository.
@@ -377,6 +378,31 @@ func (m *MockPostRepo) ListAdmin(ctx context.Context, status string, page, limit
 		})
 	}
 	return items, total, nil
+}
+
+// Update replaces the editable fields of a stored post (mock). Like the real repository it never
+// changes the slug, and a missing or soft-deleted id returns ErrPostNotFound.
+func (m *MockPostRepo) Update(ctx context.Context, p model.Post) (*model.Post, error) {
+	if m.UpdateFunc != nil {
+		return m.UpdateFunc(ctx, p)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	stored, ok := m.posts[p.ID]
+	if !ok || stored.DeletedAt != nil {
+		return nil, fmt.Errorf("update post: %w", ErrPostNotFound)
+	}
+	stored.Title = p.Title
+	stored.Content = p.Content
+	stored.Excerpt = p.Excerpt
+	stored.CoverImageURL = p.CoverImageURL
+	stored.Status = p.Status
+	stored.PublishedAt = p.PublishedAt
+	stored.UpdatedAt = time.Now()
+
+	updated := *stored
+	return &updated, nil
 }
 
 // MarkDeleted soft-deletes a stored post (mock), like a future Delete would.

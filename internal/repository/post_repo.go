@@ -246,3 +246,34 @@ func (r *PostRepo) ListAdmin(ctx context.Context, status string, page, limit int
 	}
 	return items, total, nil
 }
+
+// Update replaces the editable fields of a non-deleted post (title, content, excerpt, cover image,
+// status, published_at) and returns the stored row. It never writes slug: a slug is fixed at creation,
+// so p.Slug is ignored. A missing or soft-deleted id returns ErrPostNotFound.
+func (r *PostRepo) Update(ctx context.Context, p model.Post) (*model.Post, error) {
+	query, args, err := r.db.Builder.
+		Update("posts").
+		Set("title", p.Title).
+		Set("content", p.Content).
+		Set("excerpt", p.Excerpt).
+		Set("cover_image_url", p.CoverImageURL).
+		Set("status", p.Status).
+		Set("published_at", p.PublishedAt).
+		Set("updated_at", sq.Expr("NOW()")).
+		Where(sq.Eq{"id": p.ID}).
+		Where(notDeleted()).
+		Suffix("RETURNING " + postColumns).
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build query: %w", err)
+	}
+
+	updated, err := scanPost(r.db.Pool.QueryRow(ctx, query, args...))
+	if err != nil {
+		return nil, fmt.Errorf("update post: %w", err)
+	}
+	if updated == nil {
+		return nil, fmt.Errorf("update post: %w", ErrPostNotFound)
+	}
+	return updated, nil
+}

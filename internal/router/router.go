@@ -81,6 +81,7 @@ func Setup(
 	admin.POST("/posts", adminPostHandler.Create, postWriteLimit)
 	admin.GET("/posts", adminPostHandler.List)
 	admin.GET("/posts/:id", adminPostHandler.Get)
+	admin.PUT("/posts/:id", adminPostHandler.Update, postWriteLimit)
 
 	_ = roleRepo // referenced in RequireRole
 }

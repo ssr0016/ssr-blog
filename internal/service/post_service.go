@@ -126,3 +126,72 @@ func (s *PostService) ListAdmin(ctx context.Context, status string, params pagin
 	}
 	return items, total, nil
 }
+
+// PostTransition says how an update changed a post's publication state. Callers use it to pick the
+// audit action.
+type PostTransition int
+
+const (
+	TransitionNone        PostTransition = iota // status did not change
+	TransitionPublished                         // draft -> published
+	TransitionUnpublished                       // published -> draft
+)
+
+// Update replaces the editable fields of a non-deleted post. The slug is never touched.
+//
+// published_at follows the status change: draft -> published stamps the clock (a re-publish gets a
+// fresh time, not the old one), published -> published keeps the existing value however many other
+// fields change, and any move to draft clears it. The current post is read first to know which case
+// applies; if it is deleted in between, the repository reports not-found and so do we.
+func (s *PostService) Update(ctx context.Context, id int64, req model.UpdatePostRequest) (*model.Post, PostTransition, error) {
+	if req.Status != model.PostStatusDraft && req.Status != model.PostStatusPublished {
+		return nil, TransitionNone, apperror.Validation("status must be draft or published")
+	}
+
+	current, err := s.postRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, TransitionNone, apperror.Internal("failed to get post").WithError(err)
+	}
+	if current == nil {
+		return nil, TransitionNone, apperror.NotFound("post not found")
+	}
+
+	next := model.Post{
+		ID:            current.ID,
+		Title:         req.Title,
+		Slug:          current.Slug,
+		Content:       req.Content,
+		Excerpt:       req.Excerpt,
+		CoverImageURL: req.CoverImageURL,
+		Status:        req.Status,
+	}
+	transition := TransitionNone
+	switch {
+	case req.Status == model.PostStatusPublished && current.Status != model.PostStatusPublished:
+		publishedAt := s.clock()
+		next.PublishedAt = &publishedAt
+		transition = TransitionPublished
+	case req.Status == model.PostStatusPublished:
+		next.PublishedAt = current.PublishedAt
+	case current.Status == model.PostStatusPublished:
+		transition = TransitionUnpublished
+	}
+
+	updated, err := s.postRepo.Update(ctx, next)
+	if errors.Is(err, repository.ErrPostNotFound) {
+		return nil, TransitionNone, apperror.NotFound("post not found")
+	}
+	if err != nil {
+		return nil, TransitionNone, apperror.Internal("failed to update post").WithError(err)
+	}
+
+	metrics.PostWritesTotal.WithLabelValues(string(metrics.PostOpUpdate)).Inc()
+	switch transition {
+	case TransitionPublished:
+		metrics.PostWritesTotal.WithLabelValues(string(metrics.PostOpPublish)).Inc()
+	case TransitionUnpublished:
+		metrics.PostWritesTotal.WithLabelValues(string(metrics.PostOpUnpublish)).Inc()
+	case TransitionNone:
+	}
+	return updated, transition, nil
+}

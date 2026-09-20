@@ -117,3 +117,61 @@ func (h *AdminPostHandler) List(c echo.Context) error {
 	}
 	return c.JSON(http.StatusOK, pagination.NewResponse(items, params, total))
 }
+
+// Update godoc
+// @Summary      Update a blog post
+// @Description  Admin only. Replaces title, content, excerpt, cover image and status. The slug never changes and any slug in the body is ignored. Moving a draft to published sets published_at; editing an already published post keeps it; moving to draft clears it.
+// @Tags         admin/posts
+// @Accept       json
+// @Produce      json
+// @Security     CookieAuth
+// @Param        id path int true "Post ID"
+// @Param        body body model.UpdatePostRequest true "Post payload"
+// @Success      200 {object} model.PostResponse
+// @Failure      400 {object} apperror.ErrorResponse
+// @Failure      401 {object} apperror.ErrorResponse
+// @Failure      403 {object} apperror.ErrorResponse
+// @Failure      404 {object} apperror.ErrorResponse
+// @Failure      422 {object} apperror.ErrorResponse
+// @Failure      429 {object} apperror.ErrorResponse
+// @Router       /admin/posts/{id} [put]
+func (h *AdminPostHandler) Update(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id < 1 {
+		return apperror.BadRequest("invalid post id")
+	}
+
+	var req model.UpdatePostRequest
+	if err := c.Bind(&req); err != nil {
+		return apperror.BadRequest("invalid request body").WithError(err)
+	}
+	if err := c.Validate(&req); err != nil {
+		return apperror.Validation(err.Error())
+	}
+
+	ctx := c.Request().Context()
+	updated, transition, err := h.postService.Update(ctx, id, req)
+	if err != nil {
+		return err
+	}
+
+	action := "post.update"
+	switch transition {
+	case service.TransitionPublished:
+		action = "post.publish"
+	case service.TransitionUnpublished:
+		action = "post.unpublish"
+	case service.TransitionNone:
+	}
+
+	// Audit trail: who did what. Deliberately carries no post content.
+	slog.InfoContext(ctx, "audit",
+		"audit", true,
+		"actor_user_id", h.sm.GetInt64(ctx, middleware.UserIDKey),
+		"action", action,
+		"post_id", updated.ID,
+		"slug", updated.Slug,
+	)
+
+	return c.JSON(http.StatusOK, updated.ToResponse())
+}

@@ -170,6 +170,30 @@ definitions:
       updated_at:
         type: string
     type: object
+  github_com_ssr0016_ssr-blog_internal_model.UpdatePostRequest:
+    properties:
+      content:
+        maxLength: 100000
+        type: string
+      cover_image_url:
+        maxLength: 2048
+        type: string
+      excerpt:
+        maxLength: 500
+        type: string
+      status:
+        enum:
+        - draft
+        - published
+        type: string
+      title:
+        maxLength: 200
+        type: string
+    required:
+    - content
+    - status
+    - title
+    type: object
   github_com_ssr0016_ssr-blog_internal_model.UpdateRoleRequest:
     properties:
       description:
@@ -481,6 +505,61 @@ paths:
       security:
       - CookieAuth: []
       summary: Get a blog post by ID
+      tags:
+      - admin/posts
+    put:
+      consumes:
+      - application/json
+      description: Admin only. Replaces title, content, excerpt, cover image and status.
+        The slug never changes and any slug in the body is ignored. Moving a draft
+        to published sets published_at; editing an already published post keeps it;
+        moving to draft clears it.
+      parameters:
+      - description: Post ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Post payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.UpdatePostRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.PostResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+      security:
+      - CookieAuth: []
+      summary: Update a blog post
       tags:
       - admin/posts
   /admin/roles:
