@@ -115,6 +115,7 @@ func run() error {
 	permissionHandler := handler.NewPermissionHandler(permissionRepo)
 	adminUserHandler := handler.NewAdminUserHandler(userRepo, roleRepo)
 	adminPostHandler := handler.NewAdminPostHandler(postService, sm)
+	postHandler := handler.NewPostHandler(postService)
 	verificationHandler := handler.NewVerificationHandler(verificationService)
 	passwordResetHandler := handler.NewPasswordResetHandler(passwordResetService)
 	healthHandler := handler.NewHealthHandler(db.Pool)
@@ -159,6 +160,7 @@ func run() error {
 		permissionHandler,
 		adminUserHandler,
 		adminPostHandler,
+		postHandler,
 	)
 
 	// Email verification route

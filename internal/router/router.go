@@ -21,6 +21,7 @@ func Setup(
 	permissionHandler *handler.PermissionHandler,
 	adminUserHandler *handler.AdminUserHandler,
 	adminPostHandler *handler.AdminPostHandler,
+	postHandler *handler.PostHandler,
 ) {
 	api := e.Group("/api/v1")
 
@@ -31,6 +32,10 @@ func Setup(
 	authLimit := ourmiddleware.RateLimit(rate.Limit(5.0/60.0), 3)
 	auth.POST("/register", authHandler.Register, authLimit)
 	auth.POST("/login", authHandler.Login, authLimit)
+
+	// Blog posts (public, read-only, no auth middleware)
+	api.GET("/posts", postHandler.List)
+	api.GET("/posts/:slug", postHandler.Get)
 
 	// ============================================================
 	// Authenticated routes

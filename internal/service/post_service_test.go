@@ -13,6 +13,7 @@ import (
 	"github.com/ssr0016/ssr-blog/internal/apperror"
 	"github.com/ssr0016/ssr-blog/internal/model"
 	"github.com/ssr0016/ssr-blog/internal/repository"
+	"github.com/ssr0016/ssr-blog/pkg/pagination"
 )
 
 var fixedNow = time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
@@ -517,6 +518,131 @@ func TestPostService_GetByID_RepoErrorBecomesInternal(t *testing.T) {
 	svc := newTestPostService(repo)
 
 	_, err := svc.GetByID(context.Background(), 1)
+	appErr := requireAppError(t, err, apperror.CodeInternal, http.StatusInternalServerError)
+	if strings.Contains(appErr.Message, "secret-detail") {
+		t.Errorf("client-facing message leaks the cause: %q", appErr.Message)
+	}
+	if !errors.Is(err, cause) {
+		t.Error("cause must stay attached for server-side logging")
+	}
+}
+
+// ============================================================
+// ListPublished
+// ============================================================
+
+func TestPostService_ListPublished_ReturnsSummariesAndTotalFromRepo(t *testing.T) {
+	want := []model.PostSummary{{Title: "A", Slug: "a"}, {Title: "B", Slug: "b"}}
+	repo := repository.NewMockPostRepo()
+	repo.ListPublishedFunc = func(_ context.Context, page, limit int) ([]model.PostSummary, int64, error) {
+		if page != 2 || limit != 10 {
+			t.Errorf("repo got page=%d limit=%d, want 2, 10", page, limit)
+		}
+		return want, 42, nil
+	}
+	svc := newTestPostService(repo)
+
+	got, total, err := svc.ListPublished(context.Background(), pagination.Params{Page: 2, Limit: 10})
+	if err != nil {
+		t.Fatalf("ListPublished() error = %v", err)
+	}
+	if total != 42 || len(got) != 2 || got[0].Slug != "a" || got[1].Slug != "b" {
+		t.Errorf("ListPublished() = %+v, %d", got, total)
+	}
+}
+
+func TestPostService_ListPublished_EmptyIsNotAnError(t *testing.T) {
+	svc := newTestPostService(repository.NewMockPostRepo())
+
+	got, total, err := svc.ListPublished(context.Background(), pagination.Params{Page: 1, Limit: 20})
+	if err != nil {
+		t.Fatalf("ListPublished() error = %v", err)
+	}
+	if total != 0 || len(got) != 0 {
+		t.Errorf("ListPublished() = %+v, %d, want empty", got, total)
+	}
+}
+
+func TestPostService_ListPublished_RepoErrorBecomesInternalWithoutLeaking(t *testing.T) {
+	cause := errors.New("db down secret-detail")
+	repo := repository.NewMockPostRepo()
+	repo.ListPublishedFunc = func(context.Context, int, int) ([]model.PostSummary, int64, error) { return nil, 0, cause }
+	svc := newTestPostService(repo)
+
+	_, _, err := svc.ListPublished(context.Background(), pagination.Params{Page: 1, Limit: 20})
+	appErr := requireAppError(t, err, apperror.CodeInternal, http.StatusInternalServerError)
+	if strings.Contains(appErr.Message, "secret-detail") {
+		t.Errorf("client-facing message leaks the cause: %q", appErr.Message)
+	}
+	if !errors.Is(err, cause) {
+		t.Error("cause must stay attached for server-side logging")
+	}
+}
+
+// ============================================================
+// GetPublishedBySlug
+// ============================================================
+
+func TestPostService_GetPublishedBySlug_Found(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	svc := newTestPostService(repo)
+	if _, err := svc.Create(context.Background(), model.CreatePostRequest{Title: "Live Post", Content: "C", Status: model.PostStatusPublished}); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	got, err := svc.GetPublishedBySlug(context.Background(), "live-post")
+	if err != nil {
+		t.Fatalf("GetPublishedBySlug() error = %v", err)
+	}
+	if got.Slug != "live-post" || got.Content != "C" {
+		t.Errorf("GetPublishedBySlug() = %+v", got)
+	}
+}
+
+// Draft, deleted and missing slugs all reach the service as "the repo returned nil", so they must
+// produce the same error, message included.
+func TestPostService_GetPublishedBySlug_NotFoundParity(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	svc := newTestPostService(repo)
+	if _, err := svc.Create(context.Background(), model.CreatePostRequest{Title: "Secret Draft", Content: "C"}); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	repo.GetPublishedBySlugFunc = nil
+
+	var first *apperror.AppError
+	for _, slug := range []string{"secret-draft", "missing", "deleted-one"} {
+		got, err := svc.GetPublishedBySlug(context.Background(), slug)
+		if got != nil {
+			t.Errorf("%s: post = %+v, want nil", slug, got)
+		}
+		appErr := requireAppError(t, err, apperror.CodeNotFound, http.StatusNotFound)
+		if first == nil {
+			first = appErr
+		} else if appErr.Message != first.Message {
+			t.Errorf("%s: message %q differs from %q", slug, appErr.Message, first.Message)
+		}
+	}
+}
+
+func TestPostService_GetPublishedBySlug_NilFromRepoIsNotFound(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	repo.GetPublishedBySlugFunc = func(context.Context, string) (*model.Post, error) { return nil, nil }
+	svc := newTestPostService(repo)
+
+	got, err := svc.GetPublishedBySlug(context.Background(), "anything")
+	if got != nil {
+		t.Errorf("post = %+v, want nil", got)
+	}
+	_ = requireAppError(t, err, apperror.CodeNotFound, http.StatusNotFound)
+}
+
+func TestPostService_GetPublishedBySlug_RepoErrorBecomesInternal(t *testing.T) {
+	cause := errors.New("db down secret-detail")
+	repo := repository.NewMockPostRepo()
+	repo.GetPublishedBySlugFunc = func(context.Context, string) (*model.Post, error) { return nil, cause }
+	svc := newTestPostService(repo)
+
+	_, err := svc.GetPublishedBySlug(context.Background(), "x")
 	appErr := requireAppError(t, err, apperror.CodeInternal, http.StatusInternalServerError)
 	if strings.Contains(appErr.Message, "secret-detail") {
 		t.Errorf("client-facing message leaks the cause: %q", appErr.Message)

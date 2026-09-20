@@ -89,7 +89,7 @@ func newHarness(t *testing.T) *harness {
 	e.Use(ourmiddleware.CSRFProtection())
 
 	// Handlers this test never reaches are nil; Echo only stores their method values.
-	router.Setup(e, sm, users, nil, nil, nil, nil, nil, nil, adminPosts)
+	router.Setup(e, sm, users, nil, nil, nil, nil, nil, nil, adminPosts, handler.NewPostHandler(service.NewPostService(posts)))
 
 	return &harness{handler: sm.LoadAndSave(e), sm: sm, posts: posts}
 }
@@ -408,5 +408,33 @@ func TestAdminPostRoutes_AuditActorComesFromTheSession(t *testing.T) {
 	}
 	if got["slug"] != "audited-through-router" {
 		t.Errorf("slug = %v", got["slug"])
+	}
+}
+
+// ============================================================
+// Public post routes
+// ============================================================
+
+func TestPublicPostRoutes_NeedNoAuthAndHideDrafts(t *testing.T) {
+	h := newHarness(t) // post 1 is a draft
+
+	list := h.do(t, call{method: http.MethodGet, path: "/api/v1/posts", actor: anonymous})
+	if list.Code != http.StatusOK {
+		t.Fatalf("anonymous GET /posts = %d, want 200\nbody: %s", list.Code, list.Body.String())
+	}
+	if !strings.Contains(list.Body.String(), `"data":[]`) {
+		t.Errorf("draft leaked into the public list: %s", list.Body.String())
+	}
+
+	draft := h.do(t, call{method: http.MethodGet, path: "/api/v1/posts/seeded-post-title", actor: anonymous})
+	missing := h.do(t, call{method: http.MethodGet, path: "/api/v1/posts/no-such-post", actor: anonymous})
+	if draft.Code != http.StatusNotFound || draft.Body.String() != missing.Body.String() {
+		t.Errorf("draft = %d %q, missing = %d %q, want identical 404s", draft.Code, draft.Body.String(), missing.Code, missing.Body.String())
+	}
+
+	// A logged-in non-admin sees exactly the same thing.
+	asUser := h.do(t, call{method: http.MethodGet, path: "/api/v1/posts/seeded-post-title", actor: userID})
+	if asUser.Code != http.StatusNotFound || asUser.Body.String() != missing.Body.String() {
+		t.Errorf("as user = %d %q, want the same 404", asUser.Code, asUser.Body.String())
 	}
 }

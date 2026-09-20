@@ -951,6 +951,87 @@
                 }
             }
         },
+        "/posts": {
+            "get": {
+                "description": "Public. Returns summaries of published posts, newest first. Full content is not included; fetch a single post by slug for that. Out-of-range page and limit values are clamped.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "posts"
+                ],
+                "summary": "List published blog posts",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Items per page (default 20, max 100)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_pkg_pagination.Response-github_com_ssr0016_ssr-blog_internal_model_PostSummary"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/posts/{slug}": {
+            "get": {
+                "description": "Public. A draft, a deleted post and a slug that does not exist all return the same 404 response.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "posts"
+                ],
+                "summary": "Get a published blog post by slug",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Post slug",
+                        "name": "slug",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.PostResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/ready": {
             "get": {
                 "description": "Returns OK if the DB is connected",
@@ -1249,6 +1330,26 @@
                 }
             }
         },
+        "github_com_ssr0016_ssr-blog_internal_model.PostSummary": {
+            "type": "object",
+            "properties": {
+                "cover_image_url": {
+                    "type": "string"
+                },
+                "excerpt": {
+                    "type": "string"
+                },
+                "published_at": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_ssr0016_ssr-blog_internal_model.RegisterRequest": {
             "type": "object",
             "required": [
@@ -1333,6 +1434,37 @@
                 },
                 "role_id": {
                     "type": "integer"
+                }
+            }
+        },
+        "github_com_ssr0016_ssr-blog_pkg_pagination.Meta": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer"
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_ssr0016_ssr-blog_pkg_pagination.Response-github_com_ssr0016_ssr-blog_internal_model_PostSummary": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.PostSummary"
+                    }
+                },
+                "meta": {
+                    "$ref": "#/definitions/github_com_ssr0016_ssr-blog_pkg_pagination.Meta"
                 }
             }
         },

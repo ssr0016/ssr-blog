@@ -9,6 +9,7 @@ import (
 	"github.com/ssr0016/ssr-blog/internal/model"
 	"github.com/ssr0016/ssr-blog/internal/repository"
 	"github.com/ssr0016/ssr-blog/pkg/metrics"
+	"github.com/ssr0016/ssr-blog/pkg/pagination"
 )
 
 // maxSlugAttempts caps the slug retry loop: base, base-2, ... base-100.
@@ -77,6 +78,29 @@ func (s *PostService) Create(ctx context.Context, req model.CreatePostRequest) (
 // GetByID returns a non-deleted post of any status, or a not-found error.
 func (s *PostService) GetByID(ctx context.Context, id int64) (*model.Post, error) {
 	post, err := s.postRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, apperror.Internal("failed to get post").WithError(err)
+	}
+	if post == nil {
+		return nil, apperror.NotFound("post not found")
+	}
+	return post, nil
+}
+
+// ListPublished returns one page of public post summaries, newest first, and the total number of
+// public posts. An empty result is not an error.
+func (s *PostService) ListPublished(ctx context.Context, params pagination.Params) ([]model.PostSummary, int64, error) {
+	items, total, err := s.postRepo.ListPublished(ctx, params.Page, params.Limit)
+	if err != nil {
+		return nil, 0, apperror.Internal("failed to list posts").WithError(err)
+	}
+	return items, total, nil
+}
+
+// GetPublishedBySlug returns a public post. A draft, a soft-deleted post and a slug that does not
+// exist all return the same not-found error, so callers cannot tell them apart.
+func (s *PostService) GetPublishedBySlug(ctx context.Context, slug string) (*model.Post, error) {
+	post, err := s.postRepo.GetPublishedBySlug(ctx, slug)
 	if err != nil {
 		return nil, apperror.Internal("failed to get post").WithError(err)
 	}

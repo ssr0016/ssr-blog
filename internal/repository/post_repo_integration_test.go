@@ -207,3 +207,156 @@ func TestPostRepo_SoftDeleted(t *testing.T) {
 	_, err = repo.Create(ctx, newTestPost("to-delete"))
 	assert.True(t, errors.Is(err, ErrSlugTaken), "deleted post's slug must never be reused, got %v", err)
 }
+
+// publishedPost returns a published post fixture with the given slug and published_at.
+func publishedPost(slug string, publishedAt time.Time) model.Post {
+	p := newTestPost(slug)
+	p.Status = model.PostStatusPublished
+	p.PublishedAt = &publishedAt
+	return p
+}
+
+func slugsOf(items []model.PostSummary) []string {
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.Slug)
+	}
+	return out
+}
+
+func TestPostRepo_ListPublished_OnlyPublishedRowsAppear(t *testing.T) {
+	repo, tdb := setupPostRepo(t)
+	ctx := context.Background()
+	base := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+
+	visible, err := repo.Create(ctx, publishedPost("visible", base))
+	require.NoError(t, err)
+	_, err = repo.Create(ctx, newTestPost("plain-draft"))
+	require.NoError(t, err)
+
+	deleted, err := repo.Create(ctx, publishedPost("soft-deleted", base.Add(time.Minute)))
+	require.NoError(t, err)
+	_, err = tdb.Pool.Exec(ctx, "UPDATE posts SET deleted_at = NOW() WHERE id = $1", deleted.ID)
+	require.NoError(t, err)
+
+	unpublished, err := repo.Create(ctx, publishedPost("unpublished-again", base.Add(2*time.Minute)))
+	require.NoError(t, err)
+	_, err = tdb.Pool.Exec(ctx, "UPDATE posts SET status = 'draft', published_at = NULL WHERE id = $1", unpublished.ID)
+	require.NoError(t, err)
+
+	items, total, err := repo.ListPublished(ctx, 1, 20)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"visible"}, slugsOf(items))
+	assert.Equal(t, int64(1), total, "drafts, soft-deleted and unpublished rows must not be counted")
+	assert.Equal(t, 4, countPosts(t, tdb), "the excluded rows still exist")
+
+	got := items[0]
+	assert.Equal(t, visible.Title, got.Title)
+	assert.Equal(t, visible.Excerpt, got.Excerpt)
+	assert.Equal(t, visible.CoverImageURL, got.CoverImageURL)
+	require.NotNil(t, got.PublishedAt)
+	assert.True(t, base.Equal(*got.PublishedAt))
+}
+
+func TestPostRepo_ListPublished_OrdersByPublishedAtThenIDDescending(t *testing.T) {
+	repo, _ := setupPostRepo(t)
+	ctx := context.Background()
+	base := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+
+	// Insertion order differs from published_at order; "tie-a" and "tie-b" share a timestamp.
+	for _, p := range []model.Post{
+		publishedPost("oldest", base),
+		publishedPost("newest", base.Add(2*time.Hour)),
+		publishedPost("tie-a", base.Add(time.Hour)),
+		publishedPost("tie-b", base.Add(time.Hour)),
+	} {
+		_, err := repo.Create(ctx, p)
+		require.NoError(t, err)
+	}
+
+	items, total, err := repo.ListPublished(ctx, 1, 20)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(4), total)
+	assert.Equal(t, []string{"newest", "tie-b", "tie-a", "oldest"}, slugsOf(items), "published_at DESC, id DESC")
+}
+
+func TestPostRepo_ListPublished_Pagination(t *testing.T) {
+	repo, _ := setupPostRepo(t)
+	ctx := context.Background()
+	base := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+
+	for i, slug := range []string{"p1", "p2", "p3", "p4", "p5"} {
+		_, err := repo.Create(ctx, publishedPost(slug, base.Add(time.Duration(i)*time.Minute)))
+		require.NoError(t, err)
+	}
+
+	page1, total, err := repo.ListPublished(ctx, 1, 2)
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), total, "total counts all matching rows, not just the page")
+	assert.Equal(t, []string{"p5", "p4"}, slugsOf(page1))
+
+	page3, total, err := repo.ListPublished(ctx, 3, 2)
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), total)
+	assert.Equal(t, []string{"p1"}, slugsOf(page3))
+
+	past, total, err := repo.ListPublished(ctx, 4, 2)
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), total, "total is still reported past the last page")
+	assert.NotNil(t, past, "a page past the end is an empty slice, not nil")
+	assert.Empty(t, past)
+}
+
+func TestPostRepo_ListPublished_EmptyTable(t *testing.T) {
+	repo, _ := setupPostRepo(t)
+
+	items, total, err := repo.ListPublished(context.Background(), 1, 20)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), total)
+	assert.NotNil(t, items)
+	assert.Empty(t, items)
+}
+
+func TestPostRepo_GetPublishedBySlug_Published(t *testing.T) {
+	repo, _ := setupPostRepo(t)
+	ctx := context.Background()
+
+	in := publishedPost("hello-world", time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond))
+	in.Content = "full **markdown** body"
+	created, err := repo.Create(ctx, in)
+	require.NoError(t, err)
+
+	got, err := repo.GetPublishedBySlug(ctx, "hello-world")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, created.ID, got.ID)
+	assert.Equal(t, "full **markdown** body", got.Content)
+	assert.Equal(t, model.PostStatusPublished, got.Status)
+}
+
+func TestPostRepo_GetPublishedBySlug_DraftDeletedAndMissingAllReturnNil(t *testing.T) {
+	repo, tdb := setupPostRepo(t)
+	ctx := context.Background()
+	publishedAt := time.Now().UTC().Add(-time.Hour)
+
+	_, err := repo.Create(ctx, newTestPost("a-draft"))
+	require.NoError(t, err)
+
+	deleted, err := repo.Create(ctx, publishedPost("a-deleted", publishedAt))
+	require.NoError(t, err)
+	_, err = tdb.Pool.Exec(ctx, "UPDATE posts SET deleted_at = NOW() WHERE id = $1", deleted.ID)
+	require.NoError(t, err)
+
+	unpublished, err := repo.Create(ctx, publishedPost("a-unpublished", publishedAt))
+	require.NoError(t, err)
+	_, err = tdb.Pool.Exec(ctx, "UPDATE posts SET status = 'draft', published_at = NULL WHERE id = $1", unpublished.ID)
+	require.NoError(t, err)
+
+	for _, slug := range []string{"a-draft", "a-deleted", "a-unpublished", "never-existed"} {
+		got, err := repo.GetPublishedBySlug(ctx, slug)
+		require.NoError(t, err, "%s: not-found is not an error", slug)
+		assert.Nil(t, got, "%s must be indistinguishable from a missing slug", slug)
+	}
+}

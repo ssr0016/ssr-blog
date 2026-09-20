@@ -97,3 +97,86 @@ func (r *PostRepo) GetByID(ctx context.Context, id int64) (*model.Post, error) {
 
 	return scanPost(r.db.Pool.QueryRow(ctx, query, args...))
 }
+
+// publishedOnly is the public visibility filter: a post is public only when it is published and
+// not soft-deleted. Every public read must use it, so drafts, unpublished and deleted posts are
+// excluded by the same predicate that reads by slug and lists.
+func publishedOnly() sq.Sqlizer {
+	return sq.And{sq.Eq{"status": model.PostStatusPublished}, notDeleted()}
+}
+
+// ListPublished returns one page of public post summaries, newest first (published_at DESC, id DESC),
+// and the total number of public posts. A page past the end returns an empty, non-nil slice.
+func (r *PostRepo) ListPublished(ctx context.Context, page, limit int) ([]model.PostSummary, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if page < 1 {
+		page = 1
+	}
+
+	countSQL, countArgs, err := r.db.Builder.
+		Select("COUNT(*)").
+		From("posts").
+		Where(publishedOnly()).
+		ToSql()
+	if err != nil {
+		return nil, 0, fmt.Errorf("build count query: %w", err)
+	}
+
+	var total int64
+	if err := r.db.Pool.QueryRow(ctx, countSQL, countArgs...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count published posts: %w", err)
+	}
+
+	offset := (page - 1) * limit
+	query, args, err := r.db.Builder.
+		Select("title", "slug", "excerpt", "cover_image_url", "published_at").
+		From("posts").
+		Where(publishedOnly()).
+		OrderBy("published_at DESC", "id DESC").
+		Limit(uint64(limit)).   // #nosec G115 - limit validated
+		Offset(uint64(offset)). // #nosec G115 - offset validated
+		ToSql()
+	if err != nil {
+		return nil, 0, fmt.Errorf("build query: %w", err)
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query published posts: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]model.PostSummary, 0, limit)
+	for rows.Next() {
+		var s model.PostSummary
+		if err := rows.Scan(&s.Title, &s.Slug, &s.Excerpt, &s.CoverImageURL, &s.PublishedAt); err != nil {
+			return nil, 0, fmt.Errorf("scan post summary: %w", err)
+		}
+		items = append(items, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterate published posts: %w", err)
+	}
+	return items, total, nil
+}
+
+// GetPublishedBySlug returns a public post, or nil, nil if there is none. One predicate decides
+// visibility, so a draft, a soft-deleted post and a slug that never existed are the same result.
+func (r *PostRepo) GetPublishedBySlug(ctx context.Context, slug string) (*model.Post, error) {
+	query, args, err := r.db.Builder.
+		Select(postColumns).
+		From("posts").
+		Where(sq.Eq{"slug": slug}).
+		Where(publishedOnly()).
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build query: %w", err)
+	}
+
+	return scanPost(r.db.Pool.QueryRow(ctx, query, args...))
+}

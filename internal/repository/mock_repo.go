@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -222,8 +223,10 @@ type MockPostRepo struct {
 	nextID int64
 
 	// Override functions for testing specific behaviors
-	CreateFunc  func(ctx context.Context, p model.Post) (*model.Post, error)
-	GetByIDFunc func(ctx context.Context, id int64) (*model.Post, error)
+	CreateFunc             func(ctx context.Context, p model.Post) (*model.Post, error)
+	GetByIDFunc            func(ctx context.Context, id int64) (*model.Post, error)
+	ListPublishedFunc      func(ctx context.Context, page, limit int) ([]model.PostSummary, int64, error)
+	GetPublishedBySlugFunc func(ctx context.Context, slug string) (*model.Post, error)
 }
 
 // NewMockPostRepo creates a new mock post repository.
@@ -270,9 +273,80 @@ func (m *MockPostRepo) GetByID(ctx context.Context, id int64) (*model.Post, erro
 	defer m.mu.Unlock()
 
 	post, ok := m.posts[id]
-	if !ok {
+	if !ok || post.DeletedAt != nil {
 		return nil, nil
 	}
 	found := *post
 	return &found, nil
+}
+
+// ListPublished returns one page of public summaries (mock): published, not deleted, ordered by
+// published_at DESC, id DESC.
+func (m *MockPostRepo) ListPublished(ctx context.Context, page, limit int) ([]model.PostSummary, int64, error) {
+	if m.ListPublishedFunc != nil {
+		return m.ListPublishedFunc(ctx, page, limit)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var public []*model.Post
+	for _, p := range m.posts {
+		if isPublic(p) {
+			public = append(public, p)
+		}
+	}
+	sort.Slice(public, func(i, j int) bool {
+		a, b := public[i], public[j]
+		if !a.PublishedAt.Equal(*b.PublishedAt) {
+			return a.PublishedAt.After(*b.PublishedAt)
+		}
+		return a.ID > b.ID
+	})
+
+	total := int64(len(public))
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 20
+	}
+	items := []model.PostSummary{}
+	for i := (page - 1) * limit; i < len(public) && i < page*limit; i++ {
+		p := public[i]
+		items = append(items, model.PostSummary{
+			Title: p.Title, Slug: p.Slug, Excerpt: p.Excerpt, CoverImageURL: p.CoverImageURL, PublishedAt: p.PublishedAt,
+		})
+	}
+	return items, total, nil
+}
+
+// GetPublishedBySlug returns a public post (mock), or nil, nil if there is none.
+func (m *MockPostRepo) GetPublishedBySlug(ctx context.Context, slug string) (*model.Post, error) {
+	if m.GetPublishedBySlugFunc != nil {
+		return m.GetPublishedBySlugFunc(ctx, slug)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, p := range m.posts {
+		if p.Slug == slug && isPublic(p) {
+			found := *p
+			return &found, nil
+		}
+	}
+	return nil, nil
+}
+
+// MarkDeleted soft-deletes a stored post (mock), like a future Delete would.
+func (m *MockPostRepo) MarkDeleted(id int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if p, ok := m.posts[id]; ok {
+		now := time.Now()
+		p.DeletedAt = &now
+	}
+}
+
+func isPublic(p *model.Post) bool {
+	return p.Status == model.PostStatusPublished && p.DeletedAt == nil && p.PublishedAt != nil
 }

@@ -70,6 +70,12 @@ type PostRepository interface {
 	Create(ctx context.Context, p model.Post) (*model.Post, error)
 	// GetByID returns a non-deleted post of any status, or nil, nil if there is none.
 	GetByID(ctx context.Context, id int64) (*model.Post, error)
+	// ListPublished returns one page of public summaries (published, not deleted), ordered by
+	// published_at DESC, id DESC, plus the total count of public posts.
+	ListPublished(ctx context.Context, page, limit int) ([]model.PostSummary, int64, error)
+	// GetPublishedBySlug returns a published, non-deleted post, or nil, nil if there is none.
+	// Drafts and deleted posts are indistinguishable from a slug that never existed.
+	GetPublishedBySlug(ctx context.Context, slug string) (*model.Post, error)
 }
 
 // Compile-time checks: implementations must satisfy interfaces.
