@@ -12,6 +12,7 @@ import (
 	"github.com/ssr0016/ssr-blog/internal/middleware"
 	"github.com/ssr0016/ssr-blog/internal/model"
 	"github.com/ssr0016/ssr-blog/internal/service"
+	"github.com/ssr0016/ssr-blog/pkg/pagination"
 )
 
 // AdminPostHandler serves the admin-only blog post endpoints. Every route is mounted behind
@@ -91,4 +92,28 @@ func (h *AdminPostHandler) Get(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, post.ToResponse())
+}
+
+// List godoc
+// @Summary      List blog posts
+// @Description  Admin only. Returns summaries of posts of any status, newest created first, without content. Soft-deleted posts are not listed. Optional status filter; out-of-range page and limit values are clamped.
+// @Tags         admin/posts
+// @Produce      json
+// @Security     CookieAuth
+// @Param        status query string false "Filter by status" Enums(draft, published)
+// @Param        page query int false "Page number (default 1)"
+// @Param        limit query int false "Items per page (default 20, max 100)"
+// @Success      200 {object} pagination.Response[model.AdminPostSummary]
+// @Failure      401 {object} apperror.ErrorResponse
+// @Failure      403 {object} apperror.ErrorResponse
+// @Failure      422 {object} apperror.ErrorResponse
+// @Router       /admin/posts [get]
+func (h *AdminPostHandler) List(c echo.Context) error {
+	params := pagination.FromContext(c)
+
+	items, total, err := h.postService.ListAdmin(c.Request().Context(), c.QueryParam("status"), params)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, pagination.NewResponse(items, params, total))
 }

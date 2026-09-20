@@ -153,6 +153,71 @@ const docTemplate = `{
             }
         },
         "/admin/posts": {
+            "get": {
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
+                "description": "Admin only. Returns summaries of posts of any status, newest created first, without content. Soft-deleted posts are not listed. Optional status filter; out-of-range page and limit values are clamped.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin/posts"
+                ],
+                "summary": "List blog posts",
+                "parameters": [
+                    {
+                        "enum": [
+                            "draft",
+                            "published"
+                        ],
+                        "type": "string",
+                        "description": "Filter by status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Items per page (default 20, max 100)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_pkg_pagination.Response-github_com_ssr0016_ssr-blog_internal_model_AdminPostSummary"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse"
+                        }
+                    }
+                }
+            },
             "post": {
                 "security": [
                     {
@@ -1198,6 +1263,38 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_ssr0016_ssr-blog_internal_model.AdminPostSummary": {
+            "type": "object",
+            "properties": {
+                "cover_image_url": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "excerpt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "published_at": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_ssr0016_ssr-blog_internal_model.AssignPermissionRequest": {
             "type": "object",
             "required": [
@@ -1457,6 +1554,20 @@ const docTemplate = `{
                 },
                 "total_pages": {
                     "type": "integer"
+                }
+            }
+        },
+        "github_com_ssr0016_ssr-blog_pkg_pagination.Response-github_com_ssr0016_ssr-blog_internal_model_AdminPostSummary": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.AdminPostSummary"
+                    }
+                },
+                "meta": {
+                    "$ref": "#/definitions/github_com_ssr0016_ssr-blog_pkg_pagination.Meta"
                 }
             }
         },

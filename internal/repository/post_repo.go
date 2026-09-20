@@ -180,3 +180,69 @@ func (r *PostRepo) GetPublishedBySlug(ctx context.Context, slug string) (*model.
 
 	return scanPost(r.db.Pool.QueryRow(ctx, query, args...))
 }
+
+// ListAdmin returns one page of non-deleted posts of any status as admin summaries (no content),
+// newest first (created_at DESC, id DESC), and the total for the same filter. An empty status
+// means all statuses. A page past the end returns an empty, non-nil slice.
+func (r *PostRepo) ListAdmin(ctx context.Context, status string, page, limit int) ([]model.AdminPostSummary, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if page < 1 {
+		page = 1
+	}
+
+	filter := sq.And{notDeleted()}
+	if status != "" {
+		filter = append(filter, sq.Eq{"status": status})
+	}
+
+	countSQL, countArgs, err := r.db.Builder.
+		Select("COUNT(*)").
+		From("posts").
+		Where(filter).
+		ToSql()
+	if err != nil {
+		return nil, 0, fmt.Errorf("build count query: %w", err)
+	}
+
+	var total int64
+	if err := r.db.Pool.QueryRow(ctx, countSQL, countArgs...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count posts: %w", err)
+	}
+
+	offset := (page - 1) * limit
+	query, args, err := r.db.Builder.
+		Select("id", "title", "slug", "excerpt", "cover_image_url", "status", "published_at", "created_at", "updated_at").
+		From("posts").
+		Where(filter).
+		OrderBy("created_at DESC", "id DESC").
+		Limit(uint64(limit)).   // #nosec G115 - limit validated
+		Offset(uint64(offset)). // #nosec G115 - offset validated
+		ToSql()
+	if err != nil {
+		return nil, 0, fmt.Errorf("build query: %w", err)
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query posts: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]model.AdminPostSummary, 0, limit)
+	for rows.Next() {
+		var s model.AdminPostSummary
+		if err := rows.Scan(&s.ID, &s.Title, &s.Slug, &s.Excerpt, &s.CoverImageURL, &s.Status, &s.PublishedAt, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			return nil, 0, fmt.Errorf("scan admin post summary: %w", err)
+		}
+		items = append(items, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterate posts: %w", err)
+	}
+	return items, total, nil
+}

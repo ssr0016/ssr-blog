@@ -56,6 +56,7 @@ func newPostEnv(t *testing.T) *postEnv {
 		}
 	})
 	e.POST("/admin/posts", h.Create)
+	e.GET("/admin/posts", h.List)
 	e.GET("/admin/posts/:id", h.Get)
 
 	return &postEnv{ctx: t.Context(), handler: sm.LoadAndSave(e), repo: repo}
@@ -73,6 +74,14 @@ func (env *postEnv) do(method, path, body string) *httptest.ResponseRecorder {
 
 func (env *postEnv) post(body string) *httptest.ResponseRecorder {
 	return env.do(http.MethodPost, "/admin/posts", body)
+}
+
+func (env *postEnv) list(query string) *httptest.ResponseRecorder {
+	path := "/admin/posts"
+	if query != "" {
+		path += "?" + query
+	}
+	return env.do(http.MethodGet, path, "")
 }
 
 func (env *postEnv) get(id string) *httptest.ResponseRecorder {
@@ -527,5 +536,205 @@ func TestAdminPostHandler_NoAuditEventWithoutASuccessfulWrite(t *testing.T) {
 	}
 	if before != 1 {
 		t.Errorf("only the one successful create should be audited, got %d records", before)
+	}
+}
+
+// ============================================================
+// GET /admin/posts
+// ============================================================
+
+// seedAdminPosts creates a draft and a published post through the handler, in that order.
+func seedAdminPosts(t *testing.T, env *postEnv) {
+	t.Helper()
+	requireStatus(t, env.post(`{"title":"Draft One","content":"SECRET-BODY-1","excerpt":"e1"}`), http.StatusCreated, "")
+	requireStatus(t, env.post(`{"title":"Live One","content":"SECRET-BODY-2","status":"published"}`), http.StatusCreated, "")
+}
+
+func adminListItems(t *testing.T, rec *httptest.ResponseRecorder) []map[string]any {
+	t.Helper()
+	raw, ok := decodeMap(t, rec)["data"].([]any)
+	if !ok {
+		t.Fatalf("data is not an array\nbody: %s", rec.Body.String())
+	}
+	out := make([]map[string]any, 0, len(raw))
+	for _, r := range raw {
+		out = append(out, r.(map[string]any))
+	}
+	return out
+}
+
+func TestAdminPostHandler_List_ReturnsAllStatusesNewestFirstWithoutContent(t *testing.T) {
+	env := newPostEnv(t)
+	seedAdminPosts(t, env)
+
+	rec := env.list("")
+
+	requireStatus(t, rec, http.StatusOK, "")
+	if ct := rec.Header().Get(echo.HeaderContentType); !strings.HasPrefix(ct, echo.MIMEApplicationJSON) {
+		t.Errorf("Content-Type = %q", ct)
+	}
+	items := adminListItems(t, rec)
+	if len(items) != 2 || items[0]["slug"] != "live-one" || items[1]["slug"] != "draft-one" {
+		t.Fatalf("items = %v, want [live-one draft-one]", items)
+	}
+	if strings.Contains(rec.Body.String(), "SECRET-BODY") {
+		t.Error("list must not include post content")
+	}
+	for _, key := range []string{"content", "deleted_at"} {
+		if _, present := items[0][key]; present {
+			t.Errorf("list item has %q", key)
+		}
+	}
+	for _, key := range []string{"id", "title", "slug", "excerpt", "cover_image_url", "status", "published_at", "created_at", "updated_at"} {
+		if _, present := items[0][key]; !present {
+			t.Errorf("list item is missing %q", key)
+		}
+	}
+	if items[0]["status"] != "published" || items[1]["status"] != "draft" {
+		t.Errorf("statuses = %v, %v", items[0]["status"], items[1]["status"])
+	}
+	if items[1]["published_at"] != nil {
+		t.Errorf("draft published_at = %v, want null", items[1]["published_at"])
+	}
+
+	meta := decodeMap(t, rec)["meta"].(map[string]any)
+	for k, v := range map[string]float64{"page": 1, "limit": 20, "total": 2, "total_pages": 1} {
+		if meta[k] != v {
+			t.Errorf("meta.%s = %v, want %v", k, meta[k], v)
+		}
+	}
+}
+
+func TestAdminPostHandler_List_StatusFilter(t *testing.T) {
+	env := newPostEnv(t)
+	seedAdminPosts(t, env)
+
+	for status, wantSlug := range map[string]string{"draft": "draft-one", "published": "live-one"} {
+		rec := env.list("status=" + status)
+		requireStatus(t, rec, http.StatusOK, "")
+		items := adminListItems(t, rec)
+		if len(items) != 1 || items[0]["slug"] != wantSlug {
+			t.Errorf("status=%s: items = %v, want only %s", status, items, wantSlug)
+		}
+		if total := decodeMap(t, rec)["meta"].(map[string]any)["total"]; total != float64(1) {
+			t.Errorf("status=%s: meta.total = %v, want 1", status, total)
+		}
+	}
+
+	rec := env.list("status=")
+	requireStatus(t, rec, http.StatusOK, "")
+	if items := adminListItems(t, rec); len(items) != 2 {
+		t.Errorf("empty status: %d items, want all 2", len(items))
+	}
+}
+
+func TestAdminPostHandler_List_UnknownStatusIs422(t *testing.T) {
+	env := newPostEnv(t)
+	seedAdminPosts(t, env)
+
+	for _, status := range []string{"bogus", "Draft", "deleted", "all"} {
+		rec := env.list("status=" + status)
+		requireStatus(t, rec, http.StatusUnprocessableEntity, "VALIDATION_ERROR")
+		if strings.Contains(rec.Body.String(), "SECRET-BODY") {
+			t.Errorf("status=%s: error body carries post data", status)
+		}
+	}
+}
+
+func TestAdminPostHandler_List_EmptyIsOKWithEmptyArray(t *testing.T) {
+	env := newPostEnv(t)
+
+	rec := env.list("")
+
+	requireStatus(t, rec, http.StatusOK, "")
+	if !strings.Contains(rec.Body.String(), `"data":[]`) {
+		t.Errorf("body = %s, want data to be [] and not null", rec.Body.String())
+	}
+	meta := decodeMap(t, rec)["meta"].(map[string]any)
+	if meta["total"] != float64(0) || meta["page"] != float64(1) || meta["limit"] != float64(20) || meta["total_pages"] != float64(0) {
+		t.Errorf("meta = %v", meta)
+	}
+}
+
+func TestAdminPostHandler_List_PageBeyondTheEndIsEmptyData(t *testing.T) {
+	env := newPostEnv(t)
+	seedAdminPosts(t, env)
+
+	rec := env.list("page=5&limit=1")
+
+	requireStatus(t, rec, http.StatusOK, "")
+	if !strings.Contains(rec.Body.String(), `"data":[]`) {
+		t.Errorf("body = %s, want data to be []", rec.Body.String())
+	}
+	meta := decodeMap(t, rec)["meta"].(map[string]any)
+	if meta["page"] != float64(5) || meta["limit"] != float64(1) || meta["total"] != float64(2) || meta["total_pages"] != float64(2) {
+		t.Errorf("meta = %v", meta)
+	}
+}
+
+// Out-of-range paging is clamped, not rejected, exactly like GET /admin/roles.
+func TestAdminPostHandler_List_ClampsOutOfRangeParams(t *testing.T) {
+	env := newPostEnv(t)
+	seedAdminPosts(t, env)
+
+	for _, tc := range []struct {
+		query     string
+		wantPage  float64
+		wantLimit float64
+	}{
+		{"limit=0", 1, 20},
+		{"limit=1000", 1, 100},
+		{"limit=-5", 1, 20},
+		{"page=0", 1, 20},
+		{"page=-3&limit=abc", 1, 20},
+	} {
+		rec := env.list(tc.query)
+		requireStatus(t, rec, http.StatusOK, "")
+		meta := decodeMap(t, rec)["meta"].(map[string]any)
+		if meta["page"] != tc.wantPage || meta["limit"] != tc.wantLimit {
+			t.Errorf("%s: meta = %v, want page %v limit %v", tc.query, meta, tc.wantPage, tc.wantLimit)
+		}
+	}
+}
+
+func TestAdminPostHandler_List_Pagination(t *testing.T) {
+	env := newPostEnv(t)
+	for i := 1; i <= 5; i++ {
+		requireStatus(t, env.post(`{"title":"P`+strconv.Itoa(i)+`","content":"C"}`), http.StatusCreated, "")
+	}
+
+	rec := env.list("page=2&limit=2")
+
+	requireStatus(t, rec, http.StatusOK, "")
+	items := adminListItems(t, rec)
+	if len(items) != 2 || items[0]["slug"] != "p3" || items[1]["slug"] != "p2" {
+		t.Errorf("items = %v, want [p3 p2]", items)
+	}
+}
+
+func TestAdminPostHandler_List_RepoErrorIs500WithoutLeaking(t *testing.T) {
+	env := newPostEnv(t)
+	env.repo.ListAdminFunc = func(context.Context, string, int, int) ([]model.AdminPostSummary, int64, error) {
+		return nil, 0, errors.New("db down secret-detail")
+	}
+
+	rec := env.list("")
+
+	requireStatus(t, rec, http.StatusInternalServerError, "INTERNAL_ERROR")
+	if strings.Contains(rec.Body.String(), "secret-detail") {
+		t.Errorf("body leaks the cause: %s", rec.Body.String())
+	}
+}
+
+// Audit events are for writes only; a read must not write one.
+func TestAdminPostHandler_List_WritesNoAuditEvent(t *testing.T) {
+	env := newPostEnv(t)
+	seedAdminPosts(t, env)
+	logs := captureLogs(t)
+
+	requireStatus(t, env.list(""), http.StatusOK, "")
+
+	if got := logs.auditRecords(t); len(got) != 0 {
+		t.Errorf("audit records = %v, want none for a read", got)
 	}
 }

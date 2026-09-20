@@ -227,6 +227,7 @@ type MockPostRepo struct {
 	GetByIDFunc            func(ctx context.Context, id int64) (*model.Post, error)
 	ListPublishedFunc      func(ctx context.Context, page, limit int) ([]model.PostSummary, int64, error)
 	GetPublishedBySlugFunc func(ctx context.Context, slug string) (*model.Post, error)
+	ListAdminFunc          func(ctx context.Context, status string, page, limit int) ([]model.AdminPostSummary, int64, error)
 }
 
 // NewMockPostRepo creates a new mock post repository.
@@ -335,6 +336,47 @@ func (m *MockPostRepo) GetPublishedBySlug(ctx context.Context, slug string) (*mo
 		}
 	}
 	return nil, nil
+}
+
+// ListAdmin returns one page of admin summaries (mock): non-deleted posts of any status, or of one
+// status when given, ordered by created_at DESC, id DESC.
+func (m *MockPostRepo) ListAdmin(ctx context.Context, status string, page, limit int) ([]model.AdminPostSummary, int64, error) {
+	if m.ListAdminFunc != nil {
+		return m.ListAdminFunc(ctx, status, page, limit)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var matched []*model.Post
+	for _, p := range m.posts {
+		if p.DeletedAt == nil && (status == "" || p.Status == status) {
+			matched = append(matched, p)
+		}
+	}
+	sort.Slice(matched, func(i, j int) bool {
+		a, b := matched[i], matched[j]
+		if !a.CreatedAt.Equal(b.CreatedAt) {
+			return a.CreatedAt.After(b.CreatedAt)
+		}
+		return a.ID > b.ID
+	})
+
+	total := int64(len(matched))
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 20
+	}
+	items := []model.AdminPostSummary{}
+	for i := (page - 1) * limit; i < len(matched) && i < page*limit; i++ {
+		p := matched[i]
+		items = append(items, model.AdminPostSummary{
+			ID: p.ID, Title: p.Title, Slug: p.Slug, Excerpt: p.Excerpt, CoverImageURL: p.CoverImageURL,
+			Status: p.Status, PublishedAt: p.PublishedAt, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		})
+	}
+	return items, total, nil
 }
 
 // MarkDeleted soft-deletes a stored post (mock), like a future Delete would.

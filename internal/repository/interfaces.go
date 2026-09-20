@@ -76,6 +76,9 @@ type PostRepository interface {
 	// GetPublishedBySlug returns a published, non-deleted post, or nil, nil if there is none.
 	// Drafts and deleted posts are indistinguishable from a slug that never existed.
 	GetPublishedBySlug(ctx context.Context, slug string) (*model.Post, error)
+	// ListAdmin returns one page of non-deleted posts of any status, ordered by created_at DESC,
+	// id DESC, plus the total for the same filter. An empty status means all statuses.
+	ListAdmin(ctx context.Context, status string, page, limit int) ([]model.AdminPostSummary, int64, error)
 }
 
 // Compile-time checks: implementations must satisfy interfaces.

@@ -360,3 +360,180 @@ func TestPostRepo_GetPublishedBySlug_DraftDeletedAndMissingAllReturnNil(t *testi
 		assert.Nil(t, got, "%s must be indistinguishable from a missing slug", slug)
 	}
 }
+
+// setCreatedAt pins created_at so ordering tests do not depend on insert timing.
+func setCreatedAt(t *testing.T, tdb *testutil.TestDB, id int64, at time.Time) {
+	t.Helper()
+	_, err := tdb.Pool.Exec(context.Background(), "UPDATE posts SET created_at = $1 WHERE id = $2", at, id)
+	require.NoError(t, err)
+}
+
+func adminSlugsOf(items []model.AdminPostSummary) []string {
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.Slug)
+	}
+	return out
+}
+
+func TestPostRepo_ListAdmin_ListsDraftsAndPublishedWithAllSummaryFields(t *testing.T) {
+	repo, _ := setupPostRepo(t)
+	ctx := context.Background()
+	publishedAt := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+
+	draft, err := repo.Create(ctx, newTestPost("a-draft"))
+	require.NoError(t, err)
+	live, err := repo.Create(ctx, publishedPost("a-live", publishedAt))
+	require.NoError(t, err)
+
+	items, total, err := repo.ListAdmin(ctx, "", 1, 20)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(2), total)
+	require.Len(t, items, 2)
+	byID := map[int64]model.AdminPostSummary{}
+	for _, it := range items {
+		byID[it.ID] = it
+	}
+
+	d := byID[draft.ID]
+	assert.Equal(t, "a-draft", d.Slug)
+	assert.Equal(t, model.PostStatusDraft, d.Status)
+	assert.Nil(t, d.PublishedAt)
+	assert.False(t, d.CreatedAt.IsZero())
+	assert.False(t, d.UpdatedAt.IsZero())
+
+	l := byID[live.ID]
+	assert.Equal(t, live.Title, l.Title)
+	assert.Equal(t, live.Excerpt, l.Excerpt)
+	assert.Equal(t, live.CoverImageURL, l.CoverImageURL)
+	assert.Equal(t, model.PostStatusPublished, l.Status)
+	require.NotNil(t, l.PublishedAt)
+	assert.True(t, publishedAt.Equal(*l.PublishedAt))
+}
+
+func TestPostRepo_ListAdmin_StatusFilter(t *testing.T) {
+	repo, _ := setupPostRepo(t)
+	ctx := context.Background()
+	at := time.Now().UTC().Add(-time.Hour)
+
+	for _, p := range []model.Post{
+		newTestPost("draft-1"),
+		publishedPost("live-1", at),
+		newTestPost("draft-2"),
+	} {
+		_, err := repo.Create(ctx, p)
+		require.NoError(t, err)
+	}
+
+	drafts, total, err := repo.ListAdmin(ctx, model.PostStatusDraft, 1, 20)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total, "total respects the filter")
+	assert.ElementsMatch(t, []string{"draft-1", "draft-2"}, adminSlugsOf(drafts))
+
+	live, total, err := repo.ListAdmin(ctx, model.PostStatusPublished, 1, 20)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Equal(t, []string{"live-1"}, adminSlugsOf(live))
+
+	all, total, err := repo.ListAdmin(ctx, "", 1, 20)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), total, "empty status means all statuses")
+	assert.Len(t, all, 3)
+}
+
+func TestPostRepo_ListAdmin_ExcludesSoftDeletedFromDataAndTotal(t *testing.T) {
+	repo, tdb := setupPostRepo(t)
+	ctx := context.Background()
+	at := time.Now().UTC().Add(-time.Hour)
+
+	_, err := repo.Create(ctx, newTestPost("kept-draft"))
+	require.NoError(t, err)
+	_, err = repo.Create(ctx, publishedPost("kept-live", at))
+	require.NoError(t, err)
+	goneDraft, err := repo.Create(ctx, newTestPost("gone-draft"))
+	require.NoError(t, err)
+	goneLive, err := repo.Create(ctx, publishedPost("gone-live", at))
+	require.NoError(t, err)
+	_, err = tdb.Pool.Exec(ctx, "UPDATE posts SET deleted_at = NOW() WHERE id IN ($1, $2)", goneDraft.ID, goneLive.ID)
+	require.NoError(t, err)
+
+	for _, status := range []string{"", model.PostStatusDraft, model.PostStatusPublished} {
+		items, total, err := repo.ListAdmin(ctx, status, 1, 20)
+		require.NoError(t, err)
+		for _, it := range items {
+			assert.NotContains(t, it.Slug, "gone-", "status %q: soft-deleted row listed", status)
+		}
+		assert.Equal(t, int64(len(items)), total, "status %q: total must not count soft-deleted rows", status)
+	}
+	assert.Equal(t, 4, countPosts(t, tdb), "the deleted rows still exist")
+}
+
+func TestPostRepo_ListAdmin_OrdersByCreatedAtThenIDDescending(t *testing.T) {
+	repo, tdb := setupPostRepo(t)
+	ctx := context.Background()
+	base := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+
+	ids := map[string]int64{}
+	for _, slug := range []string{"oldest", "newest", "tie-a", "tie-b"} {
+		p, err := repo.Create(ctx, newTestPost(slug))
+		require.NoError(t, err)
+		ids[slug] = p.ID
+	}
+	setCreatedAt(t, tdb, ids["oldest"], base)
+	setCreatedAt(t, tdb, ids["newest"], base.Add(2*time.Hour))
+	setCreatedAt(t, tdb, ids["tie-a"], base.Add(time.Hour))
+	setCreatedAt(t, tdb, ids["tie-b"], base.Add(time.Hour))
+
+	items, total, err := repo.ListAdmin(ctx, "", 1, 20)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(4), total)
+	assert.Equal(t, []string{"newest", "tie-b", "tie-a", "oldest"}, adminSlugsOf(items), "created_at DESC, id DESC")
+}
+
+func TestPostRepo_ListAdmin_PagingIsStableWhenCreatedAtIsEqual(t *testing.T) {
+	repo, tdb := setupPostRepo(t)
+	ctx := context.Background()
+	same := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+
+	for _, slug := range []string{"s1", "s2", "s3", "s4", "s5"} {
+		p, err := repo.Create(ctx, newTestPost(slug))
+		require.NoError(t, err)
+		setCreatedAt(t, tdb, p.ID, same)
+	}
+
+	var seen []string
+	for page := 1; page <= 3; page++ {
+		items, total, err := repo.ListAdmin(ctx, "", page, 2)
+		require.NoError(t, err)
+		assert.Equal(t, int64(5), total)
+		seen = append(seen, adminSlugsOf(items)...)
+	}
+	assert.Equal(t, []string{"s5", "s4", "s3", "s2", "s1"}, seen, "no row skipped or repeated across pages")
+}
+
+func TestPostRepo_ListAdmin_PageBeyondEndIsEmptyWithTotal(t *testing.T) {
+	repo, _ := setupPostRepo(t)
+	ctx := context.Background()
+	for _, slug := range []string{"x1", "x2", "x3"} {
+		_, err := repo.Create(ctx, newTestPost(slug))
+		require.NoError(t, err)
+	}
+
+	items, total, err := repo.ListAdmin(ctx, "", 4, 2)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), total, "total is still reported past the last page")
+	assert.NotNil(t, items, "a page past the end is an empty slice, not nil")
+	assert.Empty(t, items)
+}
+
+func TestPostRepo_ListAdmin_EmptyTable(t *testing.T) {
+	repo, _ := setupPostRepo(t)
+
+	items, total, err := repo.ListAdmin(context.Background(), "", 1, 20)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), total)
+	assert.NotNil(t, items)
+	assert.Empty(t, items)
+}

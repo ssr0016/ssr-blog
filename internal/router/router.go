@@ -79,6 +79,7 @@ func Setup(
 	// rejected callers do not consume the admin's write budget.
 	postWriteLimit := ourmiddleware.RateLimit(rate.Limit(30.0/60.0), 10)
 	admin.POST("/posts", adminPostHandler.Create, postWriteLimit)
+	admin.GET("/posts", adminPostHandler.List)
 	admin.GET("/posts/:id", adminPostHandler.Get)
 
 	_ = roleRepo // referenced in RequireRole

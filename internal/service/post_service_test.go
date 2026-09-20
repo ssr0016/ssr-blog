@@ -651,3 +651,96 @@ func TestPostService_GetPublishedBySlug_RepoErrorBecomesInternal(t *testing.T) {
 		t.Error("cause must stay attached for server-side logging")
 	}
 }
+
+// ============================================================
+// ListAdmin
+// ============================================================
+
+func TestPostService_ListAdmin_PassesFilterAndPagingToRepo(t *testing.T) {
+	want := []model.AdminPostSummary{{ID: 2, Slug: "b"}, {ID: 1, Slug: "a"}}
+	repo := repository.NewMockPostRepo()
+	repo.ListAdminFunc = func(_ context.Context, status string, page, limit int) ([]model.AdminPostSummary, int64, error) {
+		if status != model.PostStatusDraft || page != 3 || limit != 10 {
+			t.Errorf("repo got status=%q page=%d limit=%d, want draft, 3, 10", status, page, limit)
+		}
+		return want, 42, nil
+	}
+	svc := newTestPostService(repo)
+
+	got, total, err := svc.ListAdmin(context.Background(), model.PostStatusDraft, pagination.Params{Page: 3, Limit: 10})
+	if err != nil {
+		t.Fatalf("ListAdmin() error = %v", err)
+	}
+	if total != 42 || len(got) != 2 || got[0].ID != 2 || got[1].ID != 1 {
+		t.Errorf("ListAdmin() = %+v, %d", got, total)
+	}
+}
+
+func TestPostService_ListAdmin_AcceptsEmptyDraftAndPublished(t *testing.T) {
+	for _, status := range []string{"", model.PostStatusDraft, model.PostStatusPublished} {
+		called := false
+		repo := repository.NewMockPostRepo()
+		repo.ListAdminFunc = func(_ context.Context, got string, _, _ int) ([]model.AdminPostSummary, int64, error) {
+			called = true
+			if got != status {
+				t.Errorf("repo got status %q, want %q", got, status)
+			}
+			return nil, 0, nil
+		}
+		svc := newTestPostService(repo)
+
+		if _, _, err := svc.ListAdmin(context.Background(), status, pagination.Params{Page: 1, Limit: 20}); err != nil {
+			t.Errorf("status %q: error = %v", status, err)
+		}
+		if !called {
+			t.Errorf("status %q: repo was not called", status)
+		}
+	}
+}
+
+func TestPostService_ListAdmin_RejectsUnknownStatusWithoutTouchingRepo(t *testing.T) {
+	for _, status := range []string{"bogus", "Draft", "PUBLISHED", " draft", "draft ", "deleted", "all"} {
+		repo := repository.NewMockPostRepo()
+		repo.ListAdminFunc = func(context.Context, string, int, int) ([]model.AdminPostSummary, int64, error) {
+			t.Errorf("status %q: repo must not be called for an invalid filter", status)
+			return nil, 0, nil
+		}
+		svc := newTestPostService(repo)
+
+		got, total, err := svc.ListAdmin(context.Background(), status, pagination.Params{Page: 1, Limit: 20})
+		if got != nil || total != 0 {
+			t.Errorf("status %q: got %+v, %d, want nothing", status, got, total)
+		}
+		_ = requireAppError(t, err, apperror.CodeValidation, http.StatusUnprocessableEntity)
+	}
+}
+
+func TestPostService_ListAdmin_EmptyIsNotAnError(t *testing.T) {
+	svc := newTestPostService(repository.NewMockPostRepo())
+
+	got, total, err := svc.ListAdmin(context.Background(), "", pagination.Params{Page: 1, Limit: 20})
+	if err != nil {
+		t.Fatalf("ListAdmin() error = %v", err)
+	}
+	if total != 0 || len(got) != 0 {
+		t.Errorf("ListAdmin() = %+v, %d, want empty", got, total)
+	}
+}
+
+func TestPostService_ListAdmin_RepoErrorBecomesInternalWithoutLeaking(t *testing.T) {
+	cause := errors.New("db down secret-detail")
+	repo := repository.NewMockPostRepo()
+	repo.ListAdminFunc = func(context.Context, string, int, int) ([]model.AdminPostSummary, int64, error) {
+		return nil, 0, cause
+	}
+	svc := newTestPostService(repo)
+
+	_, _, err := svc.ListAdmin(context.Background(), "", pagination.Params{Page: 1, Limit: 20})
+	appErr := requireAppError(t, err, apperror.CodeInternal, http.StatusInternalServerError)
+	if strings.Contains(appErr.Message, "secret-detail") {
+		t.Errorf("client-facing message leaks the cause: %q", appErr.Message)
+	}
+	if !errors.Is(err, cause) {
+		t.Error("cause must stay attached for server-side logging")
+	}
+}

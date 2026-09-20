@@ -109,3 +109,20 @@ func (s *PostService) GetPublishedBySlug(ctx context.Context, slug string) (*mod
 	}
 	return post, nil
 }
+
+// ListAdmin returns one page of posts of any status for the admin, newest first, and the total for
+// the same filter. status must be "" (all), "draft" or "published"; anything else is a validation
+// error and the repository is not queried.
+func (s *PostService) ListAdmin(ctx context.Context, status string, params pagination.Params) ([]model.AdminPostSummary, int64, error) {
+	switch status {
+	case "", model.PostStatusDraft, model.PostStatusPublished:
+	default:
+		return nil, 0, apperror.Validation("status must be draft or published")
+	}
+
+	items, total, err := s.postRepo.ListAdmin(ctx, status, params.Page, params.Limit)
+	if err != nil {
+		return nil, 0, apperror.Internal("failed to list posts").WithError(err)
+	}
+	return items, total, nil
+}

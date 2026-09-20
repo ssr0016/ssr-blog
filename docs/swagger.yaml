@@ -11,6 +11,27 @@ definitions:
       message:
         type: string
     type: object
+  github_com_ssr0016_ssr-blog_internal_model.AdminPostSummary:
+    properties:
+      cover_image_url:
+        type: string
+      created_at:
+        type: string
+      excerpt:
+        type: string
+      id:
+        type: integer
+      published_at:
+        type: string
+      slug:
+        type: string
+      status:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
   github_com_ssr0016_ssr-blog_internal_model.AssignPermissionRequest:
     properties:
       permission_id:
@@ -187,6 +208,15 @@ definitions:
       total_pages:
         type: integer
     type: object
+  github_com_ssr0016_ssr-blog_pkg_pagination.Response-github_com_ssr0016_ssr-blog_internal_model_AdminPostSummary:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.AdminPostSummary'
+        type: array
+      meta:
+        $ref: '#/definitions/github_com_ssr0016_ssr-blog_pkg_pagination.Meta'
+    type: object
   github_com_ssr0016_ssr-blog_pkg_pagination.Response-github_com_ssr0016_ssr-blog_internal_model_PostSummary:
     properties:
       data:
@@ -326,6 +356,50 @@ paths:
       tags:
       - admin/permissions
   /admin/posts:
+    get:
+      description: Admin only. Returns summaries of posts of any status, newest created
+        first, without content. Soft-deleted posts are not listed. Optional status
+        filter; out-of-range page and limit values are clamped.
+      parameters:
+      - description: Filter by status
+        enum:
+        - draft
+        - published
+        in: query
+        name: status
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20, max 100)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_pkg_pagination.Response-github_com_ssr0016_ssr-blog_internal_model_AdminPostSummary'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+      security:
+      - CookieAuth: []
+      summary: List blog posts
+      tags:
+      - admin/posts
     post:
       consumes:
       - application/json

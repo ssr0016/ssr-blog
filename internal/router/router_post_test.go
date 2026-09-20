@@ -229,6 +229,8 @@ func TestAdminPostRoutes_RBACMatrix(t *testing.T) {
 	}{
 		{"POST /admin/posts", http.MethodPost, "/api/v1/admin/posts", `{"title":"New Post","content":"body"}`, http.StatusCreated},
 		{"GET /admin/posts/:id", http.MethodGet, "/api/v1/admin/posts/1", "", http.StatusOK},
+		{"GET /admin/posts", http.MethodGet, "/api/v1/admin/posts", "", http.StatusOK},
+		{"GET /admin/posts?status=draft", http.MethodGet, "/api/v1/admin/posts?status=draft", "", http.StatusOK},
 	}
 	actors := []struct {
 		name       string
