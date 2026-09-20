@@ -160,8 +160,9 @@ check "case14_success_is_silent" test -z "$out"
 printf "ab\\000cd\\n" > "$target"
 expect_exit "case15_nul_file" 2 "$VE" "$target" --contains ab
 
-# Case 16: counting stays close to linear: 20000 occurrences in a 10000-line file
-# finish well inside the timeout (a copy-per-occurrence loop takes about twice as long)
+# Case 16: timing guard on a mid-size file: 20000 occurrences in a 10000-line file must
+# finish well inside the timeout. It catches a copy-per-occurrence loop (about twice as
+# slow here). It does not prove linearity: --count is quadratic in file size (see the header).
 awk 'BEGIN { for (i = 1; i <= 10000; i++) print "line " i " token token" }' > "$tmp/big.txt"
 expect_exit "case16_large_file_count" 0 timeout 8 "$VE" "$tmp/big.txt" --count "token=20000"
 expect_exit "case16_large_file_count_wrong" 1 timeout 8 "$VE" "$tmp/big.txt" --count "token=19999"
@@ -172,6 +173,52 @@ expect_exit "case17_slash_count" 0 "$VE" "$target" --count "a/b=2"
 expect_exit "case17_bracket_count" 0 "$VE" "$target" --count "[x]=3"
 expect_exit "case17_glob_is_not_pattern" 0 "$VE" "$target" --count "[a-z]=0"
 expect_exit "case17_single_char_count" 0 "$VE" "$target" --count "x=3"
+
+# Case 18: a wanted count too large for the shell's integer test is a usage error,
+# never "landed" (fail closed)
+printf "a\\na\\na\\n" > "$target"
+expect_exit "case18_huge_count_is_usage_error" 64 "$VE" "$target" --count "a=99999999999999999999"
+expect_exit "case18_two_pow_63_is_usage_error" 64 "$VE" "$target" --count "a=9223372036854775808"
+expect_exit "case18_fifteen_digit_count_not_landed" 1 "$VE" "$target" --count "a=999999999999999"
+expect_exit "case18_leading_zeros_same_value" 0 "$VE" "$target" --count "a=0000000000000000000003"
+expect_exit "case18_leading_zeros_wrong_value" 1 "$VE" "$target" --count "a=0000000000000000000004"
+expect_exit "case18_zero_written_with_zeros" 0 "$VE" "$target" --count "zzz=000000000000000000000"
+err=$("$VE" "$target" --count "a=99999999999999999999" 2>&1 >/dev/null)
+check "case18_no_shell_error_text" bash -c '! printf "%s\n" "$1" | grep -q "integer expression"' _ "$err"
+
+# Case 19: TEXT is matched literally: glob characters, backslashes, a leading dash
+printf "abc\\n" > "$target"
+expect_exit "case19_contains_bracket_is_literal" 1 "$VE" "$target" --contains "[a-z]"
+expect_exit "case19_contains_question_is_literal" 1 "$VE" "$target" --contains "a?c"
+expect_exit "case19_contains_star_is_literal" 1 "$VE" "$target" --contains "a*c"
+expect_exit "case19_absent_bracket_is_literal" 0 "$VE" "$target" --absent "[a-z]"
+expect_exit "case19_absent_question_is_literal" 0 "$VE" "$target" --absent "a?c"
+expect_exit "case19_absent_star_is_literal" 0 "$VE" "$target" --absent "a*c"
+expect_exit "case19_count_question_is_literal" 0 "$VE" "$target" --count "?=0"
+printf "x -n y\\n" > "$target"
+expect_exit "case19_leading_dash_contains" 0 "$VE" "$target" --contains "-n"
+expect_exit "case19_leading_dash_absent" 0 "$VE" "$target" --absent "-e"
+printf "a\\\\b\\n" > "$target"
+expect_exit "case19_backslash_contains" 0 "$VE" "$target" --contains 'a\b'
+expect_exit "case19_backslash_not_doubled" 1 "$VE" "$target" --contains 'a\\b'
+expect_exit "case19_backslash_absent_doubled" 0 "$VE" "$target" --absent 'a\\b'
+
+# Case 20: UTF-8 content is compared byte for byte whatever the caller's locale
+# (the script sets LC_ALL=C itself), and an empty file is a plain file with no text
+printf "caf\\303\\251\\n" > "$target"
+utf8env() { env LANG=C.UTF-8 LC_ALL= LC_CTYPE=C.UTF-8 "$@"; }
+expect_exit "case20_utf8_contains_bytes" 0 utf8env "$VE" "$target" --contains "$(printf 'caf\303\251')"
+expect_exit "case20_utf8_absent_other_text" 0 utf8env "$VE" "$target" --absent "cafe"
+expect_exit "case20_utf8_not_landed_is_1_not_2" 1 utf8env "$VE" "$target" --contains x
+expect_exit "case20_utf8_count_bytes" 0 utf8env "$VE" "$target" --count "$(printf '\303\251')=1"
+: > "$target"
+expect_exit "case20_empty_file_absent" 0 "$VE" "$target" --absent x
+expect_exit "case20_empty_file_contains" 1 "$VE" "$target" --contains x
+expect_exit "case20_empty_file_count_zero" 0 "$VE" "$target" --count "x=0"
+
+# Case 21: the header states the known limit of --count
+check "case21_quadratic_limit_documented" grep -q -F "quadratic" "$VE"
+check "case21_digit_limit_documented" grep -q -F "15 digits" "$VE"
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ]; then

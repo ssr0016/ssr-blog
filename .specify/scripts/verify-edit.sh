@@ -4,6 +4,11 @@
 #   TEXT must not be empty. TEXT may span several lines: it then has to appear as
 #   one consecutive block. --count counts non-overlapping occurrences of TEXT,
 #   not lines. FILE must be a readable regular file without NUL bytes.
+#   A wanted count of more than 15 digits (after leading zeros) is a usage error: it does
+#   not fit the shell's integer test, and a silent false pass is worse than a refusal.
+#   Limit: --count is quadratic in file size (about 60 ms for 200 KB, 4 s for 2 MB, minutes
+#   for 10 MB). That is fine for workflow files (tens of KB); do not use it on huge files.
+#   --contains and --absent stay fast on large files.
 # Exit: 0 landed, 1 not landed, 2 could not verify, 64 bad usage.
 # The file is read once into memory and matched with bash itself: no temp file,
 # no grep, so no tool failure can be mistaken for "no match".
@@ -46,6 +51,9 @@ while [ "$#" -gt 0 ]; do
             case "$want" in
                 ""|*[!0-9]*) usage ;;
             esac
+            # Drop leading zeros, then refuse what the shell's integer test cannot hold.
+            while [ "${#want}" -gt 1 ] && [ "${want:0:1}" = "0" ]; do want="${want:1}"; done
+            [ "${#want}" -le 15 ] || usage
             count_needles+=("$needle")
             count_wants+=("$want")
             shift 2 ;;
@@ -121,7 +129,8 @@ while [ "$i" -lt "$n_count" ]; do
     text="${count_needles[$i]}"
     want="${count_wants[$i]}"
     got="$(count_occurrences "$text")"
-    if [ "$got" -ne "$want" ]; then
+    # "! -eq" rather than "-ne": if the test itself ever errors, that counts as not landed.
+    if ! [ "$got" -eq "$want" ]; then
         add_reason "count for [$text]: want $want, got $got"
     fi
     i=$((i + 1))
