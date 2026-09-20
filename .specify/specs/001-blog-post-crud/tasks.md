@@ -8,8 +8,8 @@
 ## Ticket Graph
 
 - T1 (Migration) and T2 (Foundation) run in parallel.
-- T1 + T2 -> T3a (Repository) -> T3 b (Service) -> T3c (Handler + RBAC).
-- T3 c -> T4, T5, T6, T7 (can run in parallel; share files, so serial is safer).
+- T1 + T2 -> T3a (Repository) -> T3b (Service) -> T3c (Handler + RBAC).
+- T3c -> T4, T5, T6, T7 (can run in parallel; share files, so serial is safer).
 - T4 + T5 + T6 + T7 -> T8 (Swagger + API docs).
 - T8 -> T9 (RBAC gate + smoke).
 
