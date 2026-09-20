@@ -81,7 +81,7 @@ migrate-status:
 
 .PHONY: test
 test:
-	@go test ./... -race -cover
+	@go test ./internal/... ./pkg/... ./cmd/... -race -cover
 
 .PHONY: lint
 lint:

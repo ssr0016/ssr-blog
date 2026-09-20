@@ -50,3 +50,36 @@ var (
 		},
 	)
 )
+
+// PostOperation is the bounded set of values for the blog_post_writes_total "operation" label.
+type PostOperation string
+
+const (
+	PostOpCreate    PostOperation = "create"
+	PostOpUpdate    PostOperation = "update"
+	PostOpDelete    PostOperation = "delete"
+	PostOpPublish   PostOperation = "publish"
+	PostOpUnpublish PostOperation = "unpublish"
+)
+
+var (
+	// PostWritesTotal counts successful post writes by operation.
+	// Never label by slug, post id or user: those are unbounded.
+	PostWritesTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "blog_post_writes_total",
+			Help: "Total number of successful blog post writes by operation",
+		},
+		[]string{"operation"},
+	)
+
+	// PostSlugAttempts records how many slug candidates a create tried before one was free.
+	// Values above 1 mean slug collisions; the service gives up at 100.
+	PostSlugAttempts = promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "blog_post_slug_attempts",
+			Help:    "Slug candidates tried per successful post creation",
+			Buckets: []float64{1, 2, 3, 5, 10, 25, 50, 100},
+		},
+	)
+)
