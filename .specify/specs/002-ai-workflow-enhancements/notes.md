@@ -24,6 +24,14 @@ Not recorded here. The resolved questions are in spec.md "Open Questions".
 - T1: ADR "Deciders" is ssr0016 (the git user and spec author). -- the template asks for names.
 - T1: 7.1 to 7.3 were not edited. Checked byte-for-byte against HEAD (checklist C2b).
 
+## T2 Decisions
+
+- T2: --lines N counts total payload lines, including the signature line. -- plan.md Design Decisions: the check runs on the whole temp file.
+- T2: --from FILE derives --lines and --sig from the source file when they are omitted. -- matches plan.md: "With --from, they default to values derived from the source file."
+- T2: ASCII gate rewritten to use awk for exact line:column. -- original grep approach could not compute the column reliably.
+- T2: Test helpers split into check (expects success) and refuse (expects non-zero exit). -- needed for the "expected to fail" cases.
+- T2: case1, case6, case7, case8 test fixtures fixed during TDD. -- real bugs in the test setup, not in writefile.sh.
+
 ## Blockers
 
 - None.
@@ -36,7 +44,7 @@ Not recorded here. The resolved questions are in spec.md "Open Questions".
 
 ## ADRs Created
 
-- docs/adr/0006-bounded-converge.md (T1, not yet committed)
+- docs/adr/0006-bounded-converge.md (T1, commit e13f2aa)
 
 ## Known Issues
 

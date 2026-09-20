@@ -42,11 +42,22 @@ After the change (script output `failures: 0`, 29 PASS lines):
 - [x] Template dirs identical -- `diff -rq .ai-workflow/templates .specify/templates` printed nothing, exit 0
 - [x] `bash -n`: not applicable, T1 touches no scripts
 - [x] checklist.md, notes.md, metrics.md updated -- created in this ticket (metrics.md by hand per the bootstrap note)
-- [x] Not committed -- `git status --short` shows ` M .specify/memory/constitution.md` and 4 untracked files, no new commit
+- [x] Committed -- `git log --oneline -1 e13f2aa` -> `docs(constitution): add Article 7.4 converge`
 
 ### T2 to T9
 
-- [ ] T2: Reliable write -- pending
+### T2: Reliable write -- ignore rule and writefile.sh
+
+- [x] Tests written first -- first run: 9 passed, 14 failed
+- [x] run.sh passes -- output: 23 passed, 0 failed, exit 0
+- [x] bash -n clean on 4 scripts -- all SYNTAX OK
+- [x] No non-ASCII bytes -- all 4 scripts ASCII clean
+- [x] grep -c << writefile.sh is 0 -- output: 0
+- [x] git check-ignore works -- 3 PASS in test_ignore_rule.sh
+- [x] make lint -- output: 0 issues.
+- [x] make test -- exit 0, all packages ok
+- [x] Workflow-only guard -- only .specify/ changes
+- [x] Not committed yet -- awaiting user
 - [ ] T3: verify-edit -- pending
 - [ ] T4: Templates -- pending
 - [ ] T5: converge.yaml -- pending
@@ -70,4 +81,4 @@ After the change (script output `failures: 0`, 29 PASS lines):
 - Context clears: 1 (see metrics.md)
 - Blockers: none
 - Decisions: see notes.md
-- ADRs created: docs/adr/0006-bounded-converge.md (T1, uncommitted)
+- ADRs created: docs/adr/0006-bounded-converge.md (T1, commit e13f2aa)
