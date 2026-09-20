@@ -103,6 +103,76 @@ before=$(sha256sum "$target" | awk "{print \$1}")
 after=$(sha256sum "$target" | awk "{print \$1}")
 check "case7_readonly" test "$before" = "$after"
 
+# Case 8: a directory (not a readable regular file) exits 2, never a false pass
+mkdir -p "$tmp/adir"
+expect_exit "case8_dir_absent" 2 "$VE" "$tmp/adir" --absent zzz
+expect_exit "case8_dir_contains" 2 "$VE" "$tmp/adir" --contains zzz
+expect_exit "case8_dir_count_zero" 2 "$VE" "$tmp/adir" --count "zzz=0"
+
+# Case 9: no temp file is used, so an unwritable TMPDIR cannot turn a failed check into "landed"
+printf "alpha\\nbeta\\n" > "$target"
+expect_exit "case9_tmpdir_absent_needle" 1 env TMPDIR=/nonexistent "$VE" "$target" --contains ZZZ_NOT_THERE_ZZZ
+expect_exit "case9_tmpdir_present_needle" 0 env TMPDIR=/nonexistent "$VE" "$target" --contains alpha
+
+# Case 10: a multi-line TEXT must appear as one consecutive block
+printf "x\\nQ\\ny\\n" > "$target"
+expect_exit "case10_multiline_not_consecutive" 1 "$VE" "$target" --contains $'x\ny'
+expect_exit "case10_multiline_absent_when_not_consecutive" 0 "$VE" "$target" --absent $'x\ny'
+printf "x\\ny\\nz\\n" > "$target"
+expect_exit "case10_multiline_consecutive" 0 "$VE" "$target" --contains $'x\ny'
+expect_exit "case10_multiline_absent_when_present" 1 "$VE" "$target" --absent $'x\ny'
+printf "a\\nb\\nx\\na\\nb\\n" > "$target"
+expect_exit "case10_multiline_count_two" 0 "$VE" "$target" --count $'a\nb=2'
+expect_exit "case10_multiline_count_wrong" 1 "$VE" "$target" --count $'a\nb=1'
+
+# Case 11: --count counts occurrences (non-overlapping), not lines
+printf "aaa\\n" > "$target"
+expect_exit "case11_count_occurrences_three" 0 "$VE" "$target" --count "a=3"
+expect_exit "case11_count_is_not_lines" 1 "$VE" "$target" --count "a=1"
+expect_exit "case11_count_non_overlapping" 0 "$VE" "$target" --count "aa=1"
+printf "a a a\\n" > "$target"
+sed -i "s/a/b/g" "$target"
+expect_exit "case11_overreplace_caught" 1 "$VE" "$target" --count "b=1"
+expect_exit "case11_overreplace_exact" 0 "$VE" "$target" --count "b=3"
+
+# Case 12: an empty TEXT is a usage error, alone or next to valid conditions
+printf "alpha\\n" > "$target"
+expect_exit "case12_empty_contains" 64 "$VE" "$target" --contains ""
+expect_exit "case12_empty_absent" 64 "$VE" "$target" --absent ""
+expect_exit "case12_empty_count_needle" 64 "$VE" "$target" --count "=3"
+expect_exit "case12_empty_absent_after_valid" 64 "$VE" "$target" --contains alpha --absent ""
+expect_exit "case12_empty_contains_before_valid" 64 "$VE" "$target" --contains "" --contains alpha
+
+# Case 13: usage errors are reported before the file is looked at
+expect_exit "case13_bad_count_missing_file" 64 "$VE" "$tmp/nope.txt" --count "x=abc"
+expect_exit "case13_empty_needle_missing_file" 64 "$VE" "$tmp/nope.txt" --contains ""
+
+# Case 14: several failed conditions are all reported on stderr; success prints nothing
+printf "alpha\\nbeta\\n" > "$target"
+err=$("$VE" "$target" --contains ZZZ --absent alpha --count "beta=5" 2>&1 >/dev/null); rc=$?
+check "case14_combined_exit_1" test "$rc" -eq 1
+check "case14_stderr_says_not_landed" bash -c 'printf "%s\n" "$1" | grep -q "not landed"' _ "$err"
+check "case14_stderr_lists_every_reason" bash -c 'printf "%s\n" "$1" | grep -q "missing: ZZZ" && printf "%s\n" "$1" | grep -q "should be absent: alpha" && printf "%s\n" "$1" | grep -q "count for \[beta\]"' _ "$err"
+out=$("$VE" "$target" --contains alpha 2>&1)
+check "case14_success_is_silent" test -z "$out"
+
+# Case 15: a file with a NUL byte cannot be verified faithfully -> exit 2
+printf "ab\\000cd\\n" > "$target"
+expect_exit "case15_nul_file" 2 "$VE" "$target" --contains ab
+
+# Case 16: counting stays close to linear: 20000 occurrences in a 10000-line file
+# finish well inside the timeout (a copy-per-occurrence loop takes about twice as long)
+awk 'BEGIN { for (i = 1; i <= 10000; i++) print "line " i " token token" }' > "$tmp/big.txt"
+expect_exit "case16_large_file_count" 0 timeout 8 "$VE" "$tmp/big.txt" --count "token=20000"
+expect_exit "case16_large_file_count_wrong" 1 timeout 8 "$VE" "$tmp/big.txt" --count "token=19999"
+
+# Case 17: TEXT with a slash, brackets, or glob characters is counted literally
+printf "a/b a/b\\n[x] [x] [x]\\n" > "$target"
+expect_exit "case17_slash_count" 0 "$VE" "$target" --count "a/b=2"
+expect_exit "case17_bracket_count" 0 "$VE" "$target" --count "[x]=3"
+expect_exit "case17_glob_is_not_pattern" 0 "$VE" "$target" --count "[a-z]=0"
+expect_exit "case17_single_char_count" 0 "$VE" "$target" --count "x=3"
+
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ]; then
     exit 1
