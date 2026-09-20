@@ -138,6 +138,22 @@ None blocking. Two verification-adjacent known issues carried forward (see below
 7. DONE **checklist.md + notes.md** — created in this ticket.
 8. DONE **tasks.md** — T4–T9 detailed sections restored from .bak and merged.
 
+## Converge round 1 (2026-09-20)
+
+Diff range 0820faf..HEAD (main == HEAD, so `git diff main` was empty). Two fresh reviewers: spec conformance, AGENTS.md/security. No original BLOCKERs.
+- Fixed (treated as BLOCKER, spec edge case "page beyond last -> empty data"): huge `page` overflowed `(page-1)*limit`, Postgres "bigint out of range", public 500. `pageOffset` helper in post_repo.go; unit + integration tests. Same pattern remains in user/role/permission repos and pkg/pagination (pre-existing, out of scope).
+- Fixed: Makefile lint target had a garbled duplicate tail.
+- Note: `make test`/`make lint` are scoped to ./internal/... ./pkg/... ./cmd/... because `./...` hits root-owned volumes/ (permission denied). Not whole-tree.
+- Open SHOULD-FIX/NIT: CSRF-before-auth gives 403 not 401 for bare anonymous writes (documented, needs product decision); NUL byte in title/content may 500 (unconfirmed); RBAC security checklist in tasks.md not signed by a second reviewer; CI not verified.
+
+## Converge round 3 (2026-09-20)
+
+Round 2 (fix verification + fresh pass): CLEAN. Round 3 (adversarial + mutation testing, ~50 mutants): 0 BLOCKER, 2 SHOULD-FIX, so not clean; convergence count reset.
+- Fixed: `GET /api/v1/posts/%00` returned 500 (Postgres rejects NUL). `validSlug` in service/slug.go now returns the normal 404 for any slug the generator cannot produce, without querying the DB.
+- Fixed: NUL byte in title/content/excerpt returned 500 on admin create/update. New `nonul` validator on the request DTOs gives 422.
+- Fixed: repo test now asserts `updated_at` strictly advances (mutant removing `updated_at = NOW()` survived before). Service test now pins the 404 message.
+- Not fixed (NITs): public list `id DESC` tiebreak untested; repo-level `limit>100` clamp untested (masked by pagination.FromContext); admin id accepts `+1`/`01`; cover_image_url accepts URL credentials; timestamps not normalized to UTC (API.md shows Z); 422 messages expose Go struct names (pre-existing).
+
 ## ADRs Created
 
 None. No irreversible architectural decisions in this feature.

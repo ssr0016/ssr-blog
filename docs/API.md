@@ -435,9 +435,9 @@ Fields:
 
 | Field | Create | Update | Rule |
 |---|---|---|---|
-| title | required | required | not blank, max 200 chars |
-| content | required | required | not blank, max 100000 chars, raw markdown |
-| excerpt | optional | optional | max 500 chars |
+| title | required | required | not blank, max 200 chars, no NUL bytes |
+| content | required | required | not blank, max 100000 chars, no NUL bytes, raw markdown |
+| excerpt | optional | optional | max 500 chars, no NUL bytes |
 | cover_image_url | optional | optional | http(s) URL, max 2048 chars |
 | status | optional (default draft) | required | draft or published |
 

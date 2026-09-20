@@ -94,7 +94,7 @@ Note: T7 had no red phase. Noted as follow-up.
 - [x] go test -tags=integration ./internal/repository/ ./internal/service/ -- pass
 - [x] make swagger -- byte-identical on re-run (no diff)
 - [x] make lint -- clean
-- [x] Working tree clean except for the T9 spec artifacts
+- [x] Working tree clean except for the T9 spec artifacts (as of T9; converge round 1-4 fixes are uncommitted until the loop ends)
 
 ---
 
@@ -111,7 +111,7 @@ Note: T7 had no red phase. Noted as follow-up.
 - [x] Every validation edge case above returns a clear error and saves nothing. -> smoke #12-#15, handler tests
 - [x] Public list uses the standard pagination format and limits. -> pkg/pagination
 - [x] Tests cover admin-only access and each validation and not-found path. -> handler tests, RBAC matrix in router_post_test.go
-- [x] Repository behavior, including slug uniqueness under concurrent creation and soft-delete exclusion, is covered by integration tests. -> repo integration suite passes (82.8s)
+- [x] Repository behavior, including slug uniqueness under concurrent creation and soft-delete exclusion, is covered by integration tests. -> repo integration suite passes (~90s)
 - [x] Swagger regenerated and docs/API.md updated. -> T8 commit 079ab07
 - [x] make lint and make test pass with no warnings or failures.
 
@@ -138,10 +138,10 @@ Note: T7 had no red phase. Noted as follow-up.
 - [x] Admin deletes a published post -> gone from public list, link returns not found. -> smoke #10
 - [x] Admin deletes, then re-creates same title -> suffixed slug, deleted slug never reused. -> integration tests
 - [x] Public list has no published posts -> empty data, valid meta. -> repo integration
-- [x] Public list page beyond the last page -> empty data, valid meta. -> repo integration
+- [x] Public list page beyond the last page -> empty data, valid meta. -> repo integration (incl. huge page values, converge round 1)
 - [x] Pagination limit above 100 or below 1 -> clamped. -> pkg/pagination
 - [x] Logged-in non-admin create/edit/delete -> forbidden, no changes. -> matrix rows 3, 6, 7
-- [x] Unauthenticated caller create/edit/delete -> auth error, no changes. -> matrix rows 3, 6, 7 (403 due to CSRF-first; documented)
+- [~] Unauthenticated caller create/edit/delete -> no changes. 401 with a valid CSRF token; bare request gets 403 (CSRF runs before auth). Accepted deviation, documented in API.md; needs product sign-off. -> matrix rows 3, 6, 7
 - [x] Malicious markdown/HTML in content -> stored as written, not rendered. -> handler stores raw
 
 ---
@@ -153,7 +153,7 @@ Note: T7 had no red phase. Noted as follow-up.
 - [x] make swagger no diff
 - [x] Commit message follows convention
 - [ ] PR opened -- single-branch workflow, no PR
-- [x] CI passing (assumed via local make test)
+- [ ] CI passing (not yet verified; local make lint/test/integration pass)
 - [ ] Rollback plan documented
 - [x] Pushed to origin/main
 
