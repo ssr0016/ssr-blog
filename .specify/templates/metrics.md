@@ -1,14 +1,12 @@
-# Metrics: AI Workflow Enhancements
+# Metrics: [Feature Name]
 
 Descriptive only. Never blocks a ticket, review, or ship. Updated when each event happens.
 A value is a number (0 is a real value) or "not tracked". "pending" is used only for an event
 that has not happened yet. Never blank.
 
-Bootstrapped by hand in T1. The metrics template is built in T4; T4 reconciles any difference.
-
-**Feature:** 002-ai-workflow-enhancements
-**Status:** In progress
-**Started:** 2026-09-20
+**Feature:** [NNN-feature-name]
+**Status:** [In progress | Converged | Not Converged | Aborted | Shipped | Abandoned]
+**Started:** YYYY-MM-DD
 
 ---
 
@@ -16,9 +14,9 @@ Bootstrapped by hand in T1. The metrics template is built in T4; T4 reconciles a
 
 | Metric | Value |
 |---|---|
-| Tickets | 9 |
-| Tickets closed | 5 |
-| Context clears | 1 |
+| Tickets | 0 |
+| Tickets closed | 0 |
+| Context clears | 0 |
 | Converge rounds | 0 |
 | Tickets reopened after done | 0 |
 
@@ -26,7 +24,7 @@ Bootstrapped by hand in T1. The metrics template is built in T4; T4 reconciles a
 
 | # | Ticket | Reason |
 |---|---|---|
-| 1 | T1 | Start of ticket; fresh context per Article 7.2 |
+| (none yet) | - | - |
 
 ### Findings per round
 
@@ -44,16 +42,7 @@ Bootstrapped by hand in T1. The metrics template is built in T4; T4 reconciles a
 
 | Ticket | Wall-clock minutes | Tokens | 100K crossed |
 |---|---|---|---|
-| T1 | 3 (134 s measured, start to hand-off) | not tracked (session); C5 subagent 33366 | not tracked |
-| T1 commit | e13f2aa | -- | -- |
-| T2 | session (not measured separately) | not tracked (session) | not tracked |
-| T3 | session (not measured separately) | not tracked (session) | not tracked |
-| T4 | session (not measured separately) | not tracked (session) | not tracked |
-| T5 | session (not measured separately) | not tracked (session) | not tracked |
-| T6 | pending | pending | pending |
-| T7 | pending | pending | pending |
-| T8 | pending | pending | pending |
-| T9 | pending | pending | pending |
+| T1 | pending | pending | pending |
 
 ## Converge
 
@@ -64,11 +53,11 @@ Bootstrapped by hand in T1. The metrics template is built in T4; T4 reconciles a
 ## Summary
 
 ```
-feature: 002-ai-workflow-enhancements
+feature: [NNN-feature-name]
 status: in progress
-tickets: 9
-tickets_closed: 5
-context_clears: 1
+tickets: 0
+tickets_closed: 0
+context_clears: 0
 converge_rounds: 0
 converge_minutes: 0
 converge_tokens: 0

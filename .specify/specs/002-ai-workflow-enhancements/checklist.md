@@ -70,7 +70,21 @@ After the change (script output `failures: 0`, 29 PASS lines):
 - [x] make test -- exit 0, all packages ok
 - [x] Workflow-only guard -- only .specify/ changes
 - [x] Not committed yet -- awaiting user
-- [ ] T4: Templates -- pending
+### T4: Templates -- metrics, findings, and the evidence rule
+
+- [x] Tests written first -- test_templates.sh created before template reconciliation
+- [x] run.sh passes -- 43 passed, 0 failed (5 test files, 99 checks total)
+- [x] bash -n clean -- SYNTAX OK on test_templates.sh
+- [x] ASCII only -- 7 template/test files clean
+- [x] diff -rq .ai-workflow/templates .specify/templates is clean -- identical
+- [x] metrics.md fields cover spec behaviors 29-31 -- 9 labels + 12 summary keys tested
+- [x] findings.md covers behaviors 1, 7, 13 -- range, spec, ledger, columns, stop condition
+- [x] checklist.md has evidence rule -- grep confirmed
+- [x] feature 002 metrics reconciled with template -- tickets_closed updated to 4
+- [x] make lint -- output: 0 issues.
+- [x] make test -- exit 0, all packages ok
+- [x] Workflow-only guard -- only .specify/ and .ai-workflow/templates/ changes
+- [x] Not committed yet -- awaiting user
 ### T5: Config -- converge.yaml
 
 - [x] Tests written first -- first run: 6 passed, 3 failed (yaml missing + comment regex)

@@ -5,6 +5,9 @@
 **Branch:** feature/xxx
 **ADR:** docs/adr/NNNN-xxx.md (kung may decision)
 
+Evidence rule: a checked `[x]` item cites the command run and the result observed. An item
+with no observed result stays `[ ]`.
+
 ---
 
 ## Phase 1: Understand
@@ -18,19 +21,22 @@
 
 Per ticket: clear context -> load AGENTS + ticket -> test-first -> commit
 
-- [ ] T1: [name] -- context fresh, tests pass
-- [ ] T2: [name] -- context fresh, tests pass
-- [ ] T3: [name] -- context fresh, tests pass
+- [ ] T1: [name] -- context fresh, tests pass, evidence cited
+- [ ] T2: [name] -- context fresh, tests pass, evidence cited
+- [ ] T3: [name] -- context fresh, tests pass, evidence cited
 - [ ] ... (add as needed)
 
 ## Phase 3: Verify
 
-- [ ] Fresh-agent self-review
-- [ ] Code review: DeepSeek -- findings: [list]
-- [ ] Code review: Claude -- findings: [list]
-- [ ] Code review: Gemini -- findings: [list]
-- [ ] All blockers resolved
-- [ ] Converged: 2 consecutive clean reviews
+Converge runs as bounded rounds. See the converge command for the fixed rotation.
+
+- [ ] Round 1: two parallel reviewers -- findings in findings.md
+- [ ] Round 2: fix verification via verify-edit.sh -- findings in findings.md
+- [ ] Round 3: adversarial -- findings in findings.md
+- [ ] Round 4: no-context full review -- findings in findings.md
+- [ ] All BLOCKER and SHOULD-FIX resolved or explicitly deferred
+- [ ] Converged: 2 consecutive clean rounds
+- [ ] Caps not reached (rounds / minutes / tokens)
 
 ## Phase 4: Ship
 

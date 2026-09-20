@@ -46,6 +46,14 @@ Not recorded here. The resolved questions are in spec.md "Open Questions".
 - T5: test hardens the token-divided-by-1000 computation with a guard. -- set -u + empty grep produced "unbound variable" before the yaml existed; guard keeps first run clean and informative.
 - T5: values read from spec.md at test time. -- ticket wants a spec change to break the test; assert the current numbers from behavior 10 (4, 15, 90000).
 
+## T4 Decisions
+
+- T4: metrics.md template has a summary block at the end so two features can be diffed side by side (spec behavior 34). -- ticket asks for it explicitly.
+- T4: findings.md combines round reports and ledger in one file. -- matches plan.md; a reviewer writes to findings.md and metrics.md only.
+- T4: checklist.md template gains an evidence rule near the top. -- so a checked box means a command and a result, not a guess.
+- T4: test_templates.sh written before reconciling the feature 002 metrics. -- TDD kept the reconciliation honest; caught tickets_closed mismatch.
+- T4: feature 002 metrics reconciled: tickets_closed 4 -> 5 (T1-T5). -- keeps the running file consistent with the finished template.
+
 ## Blockers
 
 - None.
