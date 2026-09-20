@@ -160,6 +160,11 @@ seed_others() {
     printf "new\n" > "$tmp/other.txt.bak.$new_ts"
     printf "keep\n" > "$tmp/other.txt.not-a-backup"
     printf "keep\n" > "$tmp/other.txt.bak.notatimestamp"
+    # Names that look like old backups but do not match the strict pattern. They sort
+    # before the cutoff, so only the pattern (not the age comparison) protects them.
+    printf "keep\n" > "$tmp/other.txt.bak.2000-01-01"
+    printf "keep\n" > "$tmp/other.txt.bak.2000-01-01T00-00-00x"
+    printf "keep\n" > "$tmp/other.txt.bak.1999-12-31T23-59-59.gz"
 }
 clear_others() { rm -f "$tmp"/other.txt.* "$target" "$tmp"/target.txt.bak.*; }
 
@@ -169,6 +174,9 @@ check "case13_new_target_prunes_other_old" test ! -e "$tmp/other.txt.bak.$old_ts
 check "case13_new_target_keeps_recent" test -e "$tmp/other.txt.bak.$new_ts"
 check "case13_new_target_keeps_non_matching" test -e "$tmp/other.txt.not-a-backup"
 check "case13_new_target_keeps_bad_timestamp" test -e "$tmp/other.txt.bak.notatimestamp"
+check "case13_new_target_keeps_date_only_name" test -e "$tmp/other.txt.bak.2000-01-01"
+check "case13_new_target_keeps_trailing_junk_name" test -e "$tmp/other.txt.bak.2000-01-01T00-00-00x"
+check "case13_new_target_keeps_suffixed_name" test -e "$tmp/other.txt.bak.1999-12-31T23-59-59.gz"
 check "case13_new_target_written" grep -q "^v1$" "$target"
 clear_others
 
@@ -179,13 +187,50 @@ check "case13_no_backup_write_still_prunes" test ! -e "$tmp/other.txt.bak.$old_t
 check "case13_no_backup_makes_no_backup" bash -c '! ls "$1"/target.txt.bak.* >/dev/null 2>&1' _ "$tmp"
 clear_others
 
-# A matching name that cannot be removed (a directory) must not fail the write
+# A directory named like a backup is left alone and does not fail the write
 printf "seed\nsig\n" | "$WF" "$target" --lines 2 --sig sig --no-backup
 mkdir "$tmp/stuck.bak.$old_ts"
 printf "v3\nsig\n" | "$WF" "$target" --lines 2 --sig sig --no-backup
-check "case13_cleanup_failure_does_not_fail_write" grep -q "^v3$" "$target"
-check "case13_undeletable_left_alone" test -d "$tmp/stuck.bak.$old_ts"
+rc=$?
+check "case13_dir_named_like_backup_write_exit_zero" test "$rc" -eq 0
+check "case13_dir_named_like_backup_write_landed" grep -q "^v3$" "$target"
+check "case13_dir_named_like_backup_left_alone" test -d "$tmp/stuck.bak.$old_ts"
 rmdir "$tmp/stuck.bak.$old_ts"
+clear_others
+
+# Case 14: dotfile backups (names that start with a dot) are pruned too, both the
+# backups of a dotfile target and the backups of a dotfile next to an ordinary target
+printf "seed\nsig\n" | "$WF" "$tmp/.dotfile" --lines 2 --sig sig --no-backup
+printf "old\n" > "$tmp/.dotfile.bak.$old_ts"
+printf "new\n" > "$tmp/.dotfile.bak.$new_ts"
+printf "keep\n" > "$tmp/.dotfile.not-a-backup"
+printf "v2\nsig\n" | "$WF" "$tmp/.dotfile" --lines 2 --sig sig
+check "case14_dotfile_old_backup_pruned" test ! -e "$tmp/.dotfile.bak.$old_ts"
+check "case14_dotfile_recent_backup_kept" test -e "$tmp/.dotfile.bak.$new_ts"
+check "case14_dotfile_non_backup_kept" test -e "$tmp/.dotfile.not-a-backup"
+check "case14_dotfile_write_landed" grep -q "^v2$" "$tmp/.dotfile"
+printf "old\n" > "$tmp/.other.bak.$old_ts"
+printf "v1\nsig\n" | "$WF" "$target" --lines 2 --sig sig --no-backup
+check "case14_dotfile_backup_beside_ordinary_target_pruned" test ! -e "$tmp/.other.bak.$old_ts"
+rm -f "$tmp"/.dotfile "$tmp"/.dotfile.* "$tmp"/.other.bak.* "$target"
+
+# Case 15: a real cleanup failure must not fail or undo the write. A stub rm that always
+# fails stands in for an undeletable backup, and its log proves the deletion was tried.
+mkdir -p "$tmp/stubbin"
+{ printf '%s\n' '#!/bin/sh' 'printf "%s\n" "$*" >> "$RM_LOG"' 'exit 1'; } > "$tmp/stubbin/rm"
+chmod +x "$tmp/stubbin/rm"
+export RM_LOG="$tmp/rm.log"
+: > "$RM_LOG"
+printf "seed\nsig\n" | "$WF" "$target" --lines 2 --sig sig --no-backup
+printf "old\n" > "$tmp/other.txt.bak.$old_ts"
+printf "v5\nsig\n" | PATH="$tmp/stubbin:$PATH" "$WF" "$target" --lines 2 --sig sig --no-backup
+rc=$?
+check "case15_write_exit_zero_when_rm_fails" test "$rc" -eq 0
+check "case15_write_landed_when_rm_fails" grep -q "^v5$" "$target"
+check "case15_rm_was_tried_on_the_old_backup" grep -q -F "other.txt.bak.$old_ts" "$RM_LOG"
+check "case15_undeletable_backup_still_there" test -e "$tmp/other.txt.bak.$old_ts"
+check "case15_stub_is_first_on_path" bash -c 'PATH="$1:$PATH"; [ "$(command -v rm)" = "$1/rm" ]' _ "$tmp/stubbin"
+rm -rf "$tmp/stubbin" "$RM_LOG"
 clear_others
 
 # Summary

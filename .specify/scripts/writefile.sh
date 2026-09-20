@@ -7,8 +7,9 @@
 # expect independently of the payload, or the check would only verify this script's own
 # write. TARGET must not be a directory.
 # After every successful write, files in the target's directory named
-# *.bak.YYYY-MM-DDTHH-MM-SS whose timestamp is over 7 days old are deleted, whether or not
-# this script made them (accepted risk). Other names are never touched.
+# *.bak.YYYY-MM-DDTHH-MM-SS (dotfile backups included) whose timestamp is over 7 days old
+# are deleted, whether or not this script made them (accepted risk). Other names are never
+# touched, and a cleanup failure never fails a write that already happened.
 set -eu
 
 die() { printf "writefile: %s\\n" "$*" >&2; exit 1; }
@@ -109,7 +110,9 @@ trap - EXIT
 prune_old_backups() {
     local cutoff old old_ts
     cutoff=$(date -u -d "7 days ago" +%Y-%m-%dT%H-%M-%S 2>/dev/null) || return 0
-    for old in "$tmpdir"/*.bak.*; do
+    # Two globs: the first does not match names that start with a dot, so the second
+    # covers the backups of dotfile targets such as .gitignore.
+    for old in "$tmpdir"/*.bak.* "$tmpdir"/.*.bak.*; do
         [ -f "$old" ] || continue
         old_ts=${old##*.bak.}
         case "$old_ts" in
