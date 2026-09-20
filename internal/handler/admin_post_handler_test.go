@@ -59,6 +59,7 @@ func newPostEnv(t *testing.T) *postEnv {
 	e.GET("/admin/posts", h.List)
 	e.PUT("/admin/posts/:id", h.Update)
 	e.GET("/admin/posts/:id", h.Get)
+	e.DELETE("/admin/posts/:id", h.Delete)
 
 	return &postEnv{ctx: t.Context(), handler: sm.LoadAndSave(e), repo: repo}
 }
@@ -91,6 +92,10 @@ func (env *postEnv) put(id, body string) *httptest.ResponseRecorder {
 
 func (env *postEnv) get(id string) *httptest.ResponseRecorder {
 	return env.do(http.MethodGet, "/admin/posts/"+id, "")
+}
+
+func (env *postEnv) del(id string) *httptest.ResponseRecorder {
+	return env.do(http.MethodDelete, "/admin/posts/"+id, "")
 }
 
 // nothingStored reports whether the repository holds no post at all (mock ids start at 1).
@@ -989,5 +994,134 @@ func TestAdminPostHandler_Update_NoAuditEventWithoutASuccessfulWrite(t *testing.
 
 	if got := logs.auditRecords(t); len(got) != 0 {
 		t.Errorf("failed updates wrote %d audit records, want 0: %v", len(got), got)
+	}
+}
+
+// ============================================================
+// DELETE /admin/posts/:id
+// ============================================================
+
+func TestAdminPostHandler_Delete_Success204WithEmptyBody(t *testing.T) {
+	env := newPostEnv(t)
+	seedDraft(t, env)
+
+	rec := env.del("1")
+
+	requireStatus(t, rec, http.StatusNoContent, "")
+	if rec.Body.Len() != 0 {
+		t.Errorf("body = %q, want empty", rec.Body.String())
+	}
+	// It is really gone from reads.
+	requireStatus(t, env.get("1"), http.StatusNotFound, string(apperror.CodeNotFound))
+}
+
+func TestAdminPostHandler_Delete_IsSoftNotHard(t *testing.T) {
+	env := newPostEnv(t)
+	seedDraft(t, env)
+	var soft []int64
+	env.repo.SoftDeleteFunc = func(_ context.Context, id int64) error {
+		soft = append(soft, id)
+		return nil
+	}
+
+	requireStatus(t, env.del("1"), http.StatusNoContent, "")
+
+	if len(soft) != 1 || soft[0] != 1 {
+		t.Errorf("SoftDelete calls = %v, want [1]", soft)
+	}
+}
+
+func TestAdminPostHandler_Delete_InvalidIDIs400(t *testing.T) {
+	env := newPostEnv(t)
+	seedDraft(t, env)
+	env.repo.SoftDeleteFunc = func(context.Context, int64) error {
+		t.Error("SoftDelete must not be called for a bad id")
+		return nil
+	}
+
+	for _, id := range []string{"abc", "0", "-1", "1.5", "99999999999999999999"} {
+		requireStatus(t, env.del(id), http.StatusBadRequest, "BAD_REQUEST")
+	}
+}
+
+func TestAdminPostHandler_Delete_UnknownAndAlreadyDeletedAre404(t *testing.T) {
+	env := newPostEnv(t)
+	seedDraft(t, env)
+	requireStatus(t, env.del("1"), http.StatusNoContent, "")
+
+	unknown := env.del("999")
+	again := env.del("1")
+
+	requireStatus(t, unknown, http.StatusNotFound, string(apperror.CodeNotFound))
+	requireStatus(t, again, http.StatusNotFound, string(apperror.CodeNotFound))
+	if unknown.Body.String() != again.Body.String() {
+		t.Errorf("bodies differ:\n%s\n%s", unknown.Body.String(), again.Body.String())
+	}
+}
+
+func TestAdminPostHandler_Delete_RepoErrorIs500WithoutLeaking(t *testing.T) {
+	env := newPostEnv(t)
+	seedDraft(t, env)
+	env.repo.SoftDeleteFunc = func(context.Context, int64) error { return errors.New("db down secret-detail") }
+
+	rec := env.del("1")
+
+	requireStatus(t, rec, http.StatusInternalServerError, "INTERNAL_ERROR")
+	if strings.Contains(rec.Body.String(), "secret-detail") {
+		t.Errorf("response leaks the cause: %s", rec.Body.String())
+	}
+}
+
+func TestAdminPostHandler_Delete_WritesAuditEvent(t *testing.T) {
+	env := newPostEnv(t)
+	seedDraft(t, env) // slug "original-title"
+	logs := captureLogs(t)
+
+	rec := env.del("1")
+
+	requireStatus(t, rec, http.StatusNoContent, "")
+	records := logs.auditRecords(t)
+	if len(records) != 1 {
+		t.Fatalf("got %d audit records, want exactly 1: %v", len(records), records)
+	}
+	got := records[0]
+	if got["audit"] != true || got["level"] != "INFO" {
+		t.Errorf("audit = %v, level = %v", got["audit"], got["level"])
+	}
+	if got["action"] != "post.delete" {
+		t.Errorf("action = %v, want post.delete", got["action"])
+	}
+	if got["actor_user_id"] != float64(testActorID) {
+		t.Errorf("actor_user_id = %v, want %d", got["actor_user_id"], testActorID)
+	}
+	if got["post_id"] != float64(1) || got["slug"] != "original-title" {
+		t.Errorf("post_id = %v, slug = %v", got["post_id"], got["slug"])
+	}
+	for _, forbidden := range []string{"content", "title", "excerpt"} {
+		if _, present := got[forbidden]; present {
+			t.Errorf("audit event must not carry %q", forbidden)
+		}
+	}
+}
+
+func TestAdminPostHandler_Delete_NoAuditEventWithoutASuccessfulWrite(t *testing.T) {
+	env := newPostEnv(t)
+	seedDraft(t, env)
+	logs := captureLogs(t)
+
+	env.del("abc") // bad id
+	env.del("999") // not found
+	env.repo.SoftDeleteFunc = func(context.Context, int64) error { return errors.New("boom") }
+	env.del("1") // repository failure
+	env.repo.SoftDeleteFunc = nil
+	env.del("1") // succeeds, audited once...
+	before := len(logs.auditRecords(t))
+	env.del("1") // ...and the repeat is a 404 and adds nothing
+
+	if before != 1 {
+		t.Errorf("only the one successful delete should be audited, got %d records", before)
+	}
+	if got := len(logs.auditRecords(t)); got != before {
+		t.Errorf("a repeated delete wrote %d audit records, want 0", got-before)
 	}
 }

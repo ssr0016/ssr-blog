@@ -229,6 +229,7 @@ type MockPostRepo struct {
 	GetPublishedBySlugFunc func(ctx context.Context, slug string) (*model.Post, error)
 	ListAdminFunc          func(ctx context.Context, status string, page, limit int) ([]model.AdminPostSummary, int64, error)
 	UpdateFunc             func(ctx context.Context, p model.Post) (*model.Post, error)
+	SoftDeleteFunc         func(ctx context.Context, id int64) error
 }
 
 // NewMockPostRepo creates a new mock post repository.
@@ -405,7 +406,34 @@ func (m *MockPostRepo) Update(ctx context.Context, p model.Post) (*model.Post, e
 	return &updated, nil
 }
 
-// MarkDeleted soft-deletes a stored post (mock), like a future Delete would.
+// SoftDelete marks a stored post as deleted (mock). Like the real repository it keeps the row, so the
+// slug stays taken, and a missing or already soft-deleted id returns ErrPostNotFound.
+func (m *MockPostRepo) SoftDelete(ctx context.Context, id int64) error {
+	if m.SoftDeleteFunc != nil {
+		return m.SoftDeleteFunc(ctx, id)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	stored, ok := m.posts[id]
+	if !ok || stored.DeletedAt != nil {
+		return fmt.Errorf("soft delete post: %w", ErrPostNotFound)
+	}
+	now := time.Now()
+	stored.DeletedAt = &now
+	return nil
+}
+
+// IsSoftDeleted reports whether the post is still stored with deleted_at set. A hard delete (row
+// removed) or a post that was never deleted both return false.
+func (m *MockPostRepo) IsSoftDeleted(id int64) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.posts[id]
+	return ok && p.DeletedAt != nil
+}
+
+// MarkDeleted soft-deletes a stored post (mock) without going through SoftDelete, for seeding tests.
 func (m *MockPostRepo) MarkDeleted(id int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

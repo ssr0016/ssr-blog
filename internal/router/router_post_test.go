@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -164,6 +165,39 @@ func (h *harness) seededUnchanged(t *testing.T) bool {
 	return got.Title == seededTitle && got.Content == "seeded body" && got.Status == model.PostStatusDraft
 }
 
+// deletePost is the standard admin delete of the seeded post (id 1): valid session and valid CSRF token.
+func (h *harness) deletePost(t *testing.T, actor int64) *httptest.ResponseRecorder {
+	t.Helper()
+	return h.deletePostID(t, actor, 1)
+}
+
+func (h *harness) deletePostID(t *testing.T, actor, id int64) *httptest.ResponseRecorder {
+	t.Helper()
+	return h.do(t, call{method: http.MethodDelete, path: "/api/v1/admin/posts/" + strconv.FormatInt(id, 10), actor: actor, csrf: csrfToken})
+}
+
+// seededPresent reports whether post 1 is still readable (not deleted).
+func (h *harness) seededPresent(t *testing.T) bool {
+	t.Helper()
+	got, err := h.posts.GetByID(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetByID(1): %v", err)
+	}
+	return got != nil
+}
+
+// requireSeededSoftDeleted proves a delete was a real soft delete: the row is still stored with
+// deleted_at set, and it no longer reads. A hard delete or a no-op would fail one of the two.
+func requireSeededSoftDeleted(t *testing.T, h *harness) {
+	t.Helper()
+	if !h.posts.IsSoftDeleted(1) {
+		t.Error("post 1 must still be stored with deleted_at set (soft delete)")
+	}
+	if h.seededPresent(t) {
+		t.Error("post 1 must no longer be readable after the delete")
+	}
+}
+
 // nothingCreated reports whether the only stored post is still the seeded one (id 1).
 func (h *harness) nothingCreated(t *testing.T) bool {
 	t.Helper()
@@ -244,12 +278,16 @@ func TestAdminPostRoutes_RBACMatrix(t *testing.T) {
 		path     string
 		body     string
 		okStatus int
+		// afterOK, when set, checks the admin's success really did its job. A status code alone is
+		// not proof: denied rows pass even without the route, so a write row needs a state check.
+		afterOK func(t *testing.T, h *harness)
 	}{
-		{"POST /admin/posts", http.MethodPost, "/api/v1/admin/posts", `{"title":"New Post","content":"body"}`, http.StatusCreated},
-		{"GET /admin/posts/:id", http.MethodGet, "/api/v1/admin/posts/1", "", http.StatusOK},
-		{"GET /admin/posts", http.MethodGet, "/api/v1/admin/posts", "", http.StatusOK},
-		{"GET /admin/posts?status=draft", http.MethodGet, "/api/v1/admin/posts?status=draft", "", http.StatusOK},
-		{"PUT /admin/posts/:id", http.MethodPut, "/api/v1/admin/posts/1", `{"title":"Edited Title","content":"body","status":"published"}`, http.StatusOK},
+		{"POST /admin/posts", http.MethodPost, "/api/v1/admin/posts", `{"title":"New Post","content":"body"}`, http.StatusCreated, nil},
+		{"GET /admin/posts/:id", http.MethodGet, "/api/v1/admin/posts/1", "", http.StatusOK, nil},
+		{"GET /admin/posts", http.MethodGet, "/api/v1/admin/posts", "", http.StatusOK, nil},
+		{"GET /admin/posts?status=draft", http.MethodGet, "/api/v1/admin/posts?status=draft", "", http.StatusOK, nil},
+		{"PUT /admin/posts/:id", http.MethodPut, "/api/v1/admin/posts/1", `{"title":"Edited Title","content":"body","status":"published"}`, http.StatusOK, nil},
+		{"DELETE /admin/posts/:id", http.MethodDelete, "/api/v1/admin/posts/1", "", http.StatusNoContent, requireSeededSoftDeleted},
 	}
 	actors := []struct {
 		name       string
@@ -289,6 +327,11 @@ func TestAdminPostRoutes_RBACMatrix(t *testing.T) {
 					if !h.nothingCreated(t) {
 						t.Error("a denied request must not change anything")
 					}
+					if !h.seededPresent(t) {
+						t.Error("a denied request must not delete the seeded post")
+					}
+				} else if r.afterOK != nil {
+					r.afterOK(t, h)
 				}
 			})
 		}
@@ -607,6 +650,234 @@ func TestAdminPostRoutes_UpdateAuditActorComesFromTheSession(t *testing.T) {
 	}
 	if got["post_id"] != float64(1) || got["slug"] != "seeded-post-title" {
 		t.Errorf("post_id = %v, slug = %v", got["post_id"], got["slug"])
+	}
+}
+
+// ============================================================
+// DELETE /admin/posts/:id
+// ============================================================
+
+func TestAdminPostRoutes_DeleteDeniedCallersChangeNothing(t *testing.T) {
+	for _, a := range []struct {
+		name string
+		id   int64
+		want int
+	}{
+		{"anonymous", anonymous, http.StatusUnauthorized},
+		{"ghost session", ghostID, http.StatusUnauthorized},
+		{"user", userID, http.StatusForbidden},
+		{"editor", editorID, http.StatusForbidden},
+		{"no role", noRoleID, http.StatusForbidden},
+	} {
+		t.Run(a.name, func(t *testing.T) {
+			h := newHarness(t)
+
+			rec := h.deletePost(t, a.id)
+
+			if rec.Code != a.want {
+				t.Fatalf("status = %d, want %d\nbody: %s", rec.Code, a.want, rec.Body.String())
+			}
+			if !h.seededPresent(t) || h.posts.IsSoftDeleted(1) {
+				t.Error("a denied delete must not delete the post")
+			}
+		})
+	}
+
+	t.Run("admin does delete it, proving the route is really mounted", func(t *testing.T) {
+		h := newHarness(t)
+
+		rec := h.deletePost(t, adminID)
+
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204\nbody: %s", rec.Code, rec.Body.String())
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("body = %q, want empty", rec.Body.String())
+		}
+		requireSeededSoftDeleted(t, h)
+	})
+}
+
+func TestAdminPostRoutes_DeleteCSRF(t *testing.T) {
+	tests := []struct {
+		name string
+		call call
+	}{
+		{"admin, header missing", call{actor: adminID, csrf: ""}},
+		{"admin, header does not match the cookie", call{actor: adminID, csrf: "another-token"}},
+		{"anonymous, header missing (CSRF is checked before auth)", call{actor: anonymous, csrf: ""}},
+		{"editor, header missing", call{actor: editorID, csrf: ""}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			c := tt.call
+			c.method, c.path = http.MethodDelete, "/api/v1/admin/posts/1"
+
+			rec := h.do(t, c)
+
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403\nbody: %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "CSRF") {
+				t.Errorf("want a CSRF rejection, got: %s", rec.Body.String())
+			}
+			if !h.seededPresent(t) || h.posts.IsSoftDeleted(1) {
+				t.Error("nothing may be deleted without a valid CSRF token")
+			}
+		})
+	}
+
+	t.Run("admin with a matching token succeeds", func(t *testing.T) {
+		h := newHarness(t)
+		if rec := h.deletePost(t, adminID); rec.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204\nbody: %s", rec.Code, rec.Body.String())
+		}
+		requireSeededSoftDeleted(t, h)
+	})
+}
+
+// seedMore stores n extra posts straight into the mock (ids 2..n+1), bypassing the write limiter.
+func (h *harness) seedMore(t *testing.T, n int) {
+	t.Helper()
+	for i := range n {
+		if _, err := h.posts.Create(context.Background(), model.Post{
+			Title: "Extra", Slug: "extra-" + strconv.Itoa(i), Content: "c", Status: model.PostStatusDraft,
+		}); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+}
+
+func TestAdminPostRoutes_RateLimitOnDelete(t *testing.T) {
+	h := newHarness(t)
+	h.seedMore(t, 11) // ids 2..12
+
+	// Burst is 10: the first ten deletes pass, the eleventh is rejected and deletes nothing.
+	for id := int64(1); id <= 10; id++ {
+		if rec := h.deletePostID(t, adminID, id); rec.Code != http.StatusNoContent {
+			t.Fatalf("delete %d: status = %d, want 204\nbody: %s", id, rec.Code, rec.Body.String())
+		}
+	}
+	rec := h.deletePostID(t, adminID, 11)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("delete 11: status = %d, want 429\nbody: %s", rec.Code, rec.Body.String())
+	}
+	if got := errorCode(t, rec); got != "RATE_LIMIT_EXCEEDED" {
+		t.Errorf("error code = %q", got)
+	}
+	if h.posts.IsSoftDeleted(11) {
+		t.Error("the throttled request must not delete anything")
+	}
+
+	// Reads are not limited by the write limiter.
+	if read := h.do(t, call{method: http.MethodGet, path: "/api/v1/admin/posts/11", actor: adminID}); read.Code != http.StatusOK {
+		t.Errorf("GET after the burst: status = %d, want 200", read.Code)
+	}
+}
+
+// Deletes, creates and edits draw from the same per-client write budget (one postWriteLimit).
+func TestAdminPostRoutes_DeletesShareTheWriteBudgetWithCreatesAndUpdates(t *testing.T) {
+	h := newHarness(t)
+	h.seedMore(t, 5) // ids 2..6
+
+	for i := 1; i <= 4; i++ {
+		if rec := h.createPost(t, adminID, "Shared"); rec.Code != http.StatusCreated {
+			t.Fatalf("create %d: status = %d", i, rec.Code)
+		}
+	}
+	for i := 1; i <= 3; i++ {
+		if rec := h.updatePost(t, adminID, routerUpdateBody); rec.Code != http.StatusOK {
+			t.Fatalf("update %d: status = %d", i, rec.Code)
+		}
+	}
+	for id := int64(2); id <= 4; id++ { // 3 deletes: 4 + 3 + 3 = 10 writes
+		if rec := h.deletePostID(t, adminID, id); rec.Code != http.StatusNoContent {
+			t.Fatalf("delete %d: status = %d", id, rec.Code)
+		}
+	}
+	if rec := h.deletePostID(t, adminID, 5); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("11th write (a delete): status = %d, want 429", rec.Code)
+	}
+	if h.posts.IsSoftDeleted(5) {
+		t.Error("the throttled delete must not be applied")
+	}
+}
+
+// The limiter sits after auth on the route, so rejected callers cannot burn the admin's budget.
+func TestAdminPostRoutes_DeniedDeletesDoNotConsumeRateLimit(t *testing.T) {
+	h := newHarness(t)
+	h.seedMore(t, 9) // ids 2..10
+
+	for i := range 30 {
+		if rec := h.deletePost(t, anonymous); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("anonymous request %d: status = %d, want 401", i, rec.Code)
+		}
+		if rec := h.deletePost(t, editorID); rec.Code != http.StatusForbidden {
+			t.Fatalf("editor request %d: status = %d, want 403", i, rec.Code)
+		}
+	}
+	for id := int64(1); id <= 10; id++ {
+		if rec := h.deletePostID(t, adminID, id); rec.Code != http.StatusNoContent {
+			t.Fatalf("admin delete %d: status = %d, want 204 (budget was consumed by denied callers)", id, rec.Code)
+		}
+	}
+}
+
+func TestAdminPostRoutes_DeleteAuditActorComesFromTheSession(t *testing.T) {
+	logs := captureLogs(t)
+	h := newHarness(t)
+
+	// Denied deletes leave no audit trail entry.
+	h.deletePost(t, anonymous)
+	h.deletePost(t, editorID)
+	h.do(t, call{method: http.MethodDelete, path: "/api/v1/admin/posts/1", actor: adminID}) // no CSRF
+	if got := len(logs.auditRecords(t)); got != 0 {
+		t.Fatalf("denied requests produced %d audit records, want 0", got)
+	}
+
+	if rec := h.deletePost(t, adminID); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+
+	records := logs.auditRecords(t)
+	if len(records) != 1 {
+		t.Fatalf("got %d audit records, want 1: %v", len(records), records)
+	}
+	got := records[0]
+	if got["audit"] != true || got["action"] != "post.delete" {
+		t.Errorf("record = %v", got)
+	}
+	if got["actor_user_id"] != float64(adminID) {
+		t.Errorf("actor_user_id = %v, want %d", got["actor_user_id"], adminID)
+	}
+	if got["post_id"] != float64(1) || got["slug"] != "seeded-post-title" {
+		t.Errorf("post_id = %v, slug = %v", got["post_id"], got["slug"])
+	}
+}
+
+func TestAdminPostRoutes_DeletedPostDisappearsFromPublicAndAdminReads(t *testing.T) {
+	h := newHarness(t)
+	// Publish the seeded post so a public read can see it before the delete.
+	if rec := h.updatePost(t, adminID, `{"title":"Live","content":"c","status":"published"}`); rec.Code != http.StatusOK {
+		t.Fatalf("publish: status = %d", rec.Code)
+	}
+	if rec := h.do(t, call{method: http.MethodGet, path: "/api/v1/posts/seeded-post-title"}); rec.Code != http.StatusOK {
+		t.Fatalf("public read before delete: status = %d, want 200", rec.Code)
+	}
+
+	if rec := h.deletePost(t, adminID); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete: status = %d", rec.Code)
+	}
+
+	if rec := h.do(t, call{method: http.MethodGet, path: "/api/v1/posts/seeded-post-title"}); rec.Code != http.StatusNotFound {
+		t.Errorf("public read after delete: status = %d, want 404", rec.Code)
+	}
+	if rec := h.do(t, call{method: http.MethodGet, path: "/api/v1/admin/posts/1", actor: adminID}); rec.Code != http.StatusNotFound {
+		t.Errorf("admin read after delete: status = %d, want 404", rec.Code)
+	}
+	if rec := h.deletePost(t, adminID); rec.Code != http.StatusNotFound {
+		t.Errorf("second delete: status = %d, want 404", rec.Code)
 	}
 }
 

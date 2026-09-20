@@ -672,3 +672,99 @@ func TestPostRepo_Update_InvalidStatusIsNotReportedAsNotFound(t *testing.T) {
 	require.Error(t, err, "the CHECK constraint must reject an unknown status")
 	assert.False(t, errors.Is(err, ErrPostNotFound), "got %v", err)
 }
+
+// deletedAt reads deleted_at straight from the table, bypassing the repository's soft-delete filter.
+func deletedAt(t *testing.T, tdb *testutil.TestDB, id int64) *time.Time {
+	t.Helper()
+	var at *time.Time
+	require.NoError(t, tdb.Pool.QueryRow(context.Background(), "SELECT deleted_at FROM posts WHERE id = $1", id).Scan(&at))
+	return at
+}
+
+func TestPostRepo_SoftDelete_KeepsTheRowAndReservesTheSlug(t *testing.T) {
+	repo, tdb := setupPostRepo(t)
+	ctx := context.Background()
+
+	created, err := repo.Create(ctx, newTestPost("doomed"))
+	require.NoError(t, err)
+	require.Nil(t, deletedAt(t, tdb, created.ID))
+
+	require.NoError(t, repo.SoftDelete(ctx, created.ID))
+
+	// The row is still there and deleted_at is set: this is not a hard delete.
+	assert.Equal(t, 1, countPosts(t, tdb), "a soft delete must never remove the row")
+	at := deletedAt(t, tdb, created.ID)
+	require.NotNil(t, at, "deleted_at must be set")
+	assert.WithinDuration(t, time.Now(), *at, time.Minute)
+
+	// Invisible to every read.
+	got, err := repo.GetByID(ctx, created.ID)
+	require.NoError(t, err)
+	assert.Nil(t, got, "GetByID must not return a soft-deleted post")
+
+	// The slug stays reserved: a new post with the same slug is refused by the unique index.
+	_, err = repo.Create(ctx, newTestPost("doomed"))
+	assert.True(t, errors.Is(err, ErrSlugTaken), "deleted post's slug must never be reused, got %v", err)
+}
+
+func TestPostRepo_SoftDelete_MissingIDIsErrPostNotFound(t *testing.T) {
+	repo, _ := setupPostRepo(t)
+
+	err := repo.SoftDelete(context.Background(), 999999)
+
+	assert.True(t, errors.Is(err, ErrPostNotFound), "got %v", err)
+}
+
+func TestPostRepo_SoftDelete_SecondDeleteIsErrPostNotFoundAndKeepsTheFirstTimestamp(t *testing.T) {
+	repo, tdb := setupPostRepo(t)
+	ctx := context.Background()
+	created, err := repo.Create(ctx, newTestPost("twice"))
+	require.NoError(t, err)
+	require.NoError(t, repo.SoftDelete(ctx, created.ID))
+	first := deletedAt(t, tdb, created.ID)
+	require.NotNil(t, first)
+
+	err = repo.SoftDelete(ctx, created.ID)
+
+	assert.True(t, errors.Is(err, ErrPostNotFound), "got %v", err)
+	second := deletedAt(t, tdb, created.ID)
+	require.NotNil(t, second)
+	assert.True(t, first.Equal(*second), "a repeated delete must not rewrite deleted_at (%v -> %v)", first, second)
+}
+
+func TestPostRepo_SoftDelete_OnlyTheTargetRowIsDeleted(t *testing.T) {
+	repo, tdb := setupPostRepo(t)
+	ctx := context.Background()
+	target, err := repo.Create(ctx, newTestPost("target"))
+	require.NoError(t, err)
+	other, err := repo.Create(ctx, newTestPost("bystander"))
+	require.NoError(t, err)
+
+	require.NoError(t, repo.SoftDelete(ctx, target.ID))
+
+	assert.Nil(t, deletedAt(t, tdb, other.ID), "a bystander must not be deleted")
+	got, err := repo.GetByID(ctx, other.ID)
+	require.NoError(t, err)
+	assert.NotNil(t, got)
+}
+
+func TestPostRepo_SoftDelete_RemovesThePostFromEveryList(t *testing.T) {
+	repo, _ := setupPostRepo(t)
+	ctx := context.Background()
+	published, err := repo.Create(ctx, publishedPost("live", time.Now().UTC().Add(-time.Hour)))
+	require.NoError(t, err)
+
+	require.NoError(t, repo.SoftDelete(ctx, published.ID))
+
+	pub, total, err := repo.ListPublished(ctx, 1, 20)
+	require.NoError(t, err)
+	assert.Empty(t, pub)
+	assert.Zero(t, total)
+	adm, total, err := repo.ListAdmin(ctx, "", 1, 20)
+	require.NoError(t, err)
+	assert.Empty(t, adm)
+	assert.Zero(t, total)
+	bySlug, err := repo.GetPublishedBySlug(ctx, "live")
+	require.NoError(t, err)
+	assert.Nil(t, bySlug)
+}

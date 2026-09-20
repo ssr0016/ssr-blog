@@ -1035,3 +1035,158 @@ func TestPostService_Update_PassesTheStoredSlugToTheRepo(t *testing.T) {
 		t.Errorf("repo received id=%d slug=%q, want id=%d slug=original-title", sent.ID, sent.Slug, seeded.ID)
 	}
 }
+
+// ============================================================
+// Delete
+// ============================================================
+
+func TestPostService_Delete_SoftDeletesAndReturnsThePostForAudit(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	seeded := seedForUpdate(t, repo, "Doomed Post", model.PostStatusPublished, t1)
+	svc := newTestPostService(repo)
+
+	got, err := svc.Delete(context.Background(), seeded.ID)
+
+	if err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if got == nil || got.ID != seeded.ID || got.Slug != "doomed-post" {
+		t.Errorf("Delete() = %+v, want the deleted post (id=%d slug=doomed-post)", got, seeded.ID)
+	}
+	if after, _ := repo.GetByID(context.Background(), seeded.ID); after != nil {
+		t.Error("the post must be gone from reads after Delete")
+	}
+}
+
+func TestPostService_Delete_CallsSoftDeleteWithTheID(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	seeded := seedForUpdate(t, repo, "Called", model.PostStatusDraft, t1)
+	var calls []int64
+	repo.SoftDeleteFunc = func(_ context.Context, id int64) error {
+		calls = append(calls, id)
+		return nil
+	}
+	svc := newTestPostService(repo)
+
+	if _, err := svc.Delete(context.Background(), seeded.ID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if len(calls) != 1 || calls[0] != seeded.ID {
+		t.Errorf("SoftDelete calls = %v, want exactly [%d]", calls, seeded.ID)
+	}
+}
+
+func TestPostService_Delete_RecordsDeleteMetricOnSuccessOnly(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	seeded := seedForUpdate(t, repo, "Counted Delete", model.PostStatusDraft, t1)
+	svc := newTestPostService(repo)
+	before := writesTotal(t, "delete")
+	updateBefore := writesTotal(t, "update")
+
+	if _, err := svc.Delete(context.Background(), seeded.ID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if d := writesTotal(t, "delete") - before; d != 1 {
+		t.Errorf("delete counter moved by %v, want 1", d)
+	}
+	if d := writesTotal(t, "update") - updateBefore; d != 0 {
+		t.Errorf("update counter moved by %v on a delete, want 0", d)
+	}
+
+	// Failures must not count: the same id again (already deleted) and an unknown id.
+	_, _ = svc.Delete(context.Background(), seeded.ID)
+	_, _ = svc.Delete(context.Background(), 99999)
+	if d := writesTotal(t, "delete") - before; d != 1 {
+		t.Errorf("delete counter moved by %v after failures, want still 1", d)
+	}
+}
+
+func TestPostService_Delete_MissingAndAlreadyDeletedAreNotFound(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	gone := seedForUpdate(t, repo, "Gone", model.PostStatusDraft, t1)
+	repo.MarkDeleted(gone.ID)
+	svc := newTestPostService(repo)
+
+	for name, id := range map[string]int64{"missing": 424242, "already deleted": gone.ID} {
+		got, err := svc.Delete(context.Background(), id)
+		if got != nil {
+			t.Errorf("%s: got %+v, want nil", name, got)
+		}
+		_ = requireAppError(t, err, apperror.CodeNotFound, http.StatusNotFound)
+	}
+}
+
+func TestPostService_Delete_SecondDeleteOfTheSameIDIsNotFound(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	seeded := seedForUpdate(t, repo, "Once Only", model.PostStatusDraft, t1)
+	svc := newTestPostService(repo)
+
+	if _, err := svc.Delete(context.Background(), seeded.ID); err != nil {
+		t.Fatalf("first Delete() error = %v", err)
+	}
+	_, err := svc.Delete(context.Background(), seeded.ID)
+
+	_ = requireAppError(t, err, apperror.CodeNotFound, http.StatusNotFound)
+}
+
+// The post can be deleted by another request between the service's read and the repository's write.
+func TestPostService_Delete_RepoNotFoundAfterReadIsStillNotFound(t *testing.T) {
+	repo := repository.NewMockPostRepo()
+	seeded := seedForUpdate(t, repo, "Racy Delete", model.PostStatusDraft, t1)
+	repo.SoftDeleteFunc = func(context.Context, int64) error {
+		return fmt.Errorf("soft delete post: %w", repository.ErrPostNotFound)
+	}
+	svc := newTestPostService(repo)
+	before := writesTotal(t, "delete")
+
+	got, err := svc.Delete(context.Background(), seeded.ID)
+
+	if got != nil {
+		t.Errorf("got %+v, want nil", got)
+	}
+	_ = requireAppError(t, err, apperror.CodeNotFound, http.StatusNotFound)
+	if writesTotal(t, "delete") != before {
+		t.Error("a failed delete must not be counted")
+	}
+}
+
+func TestPostService_Delete_RepoErrorsBecomeInternalWithoutLeaking(t *testing.T) {
+	cause := errors.New("db down secret-detail")
+
+	t.Run("read fails", func(t *testing.T) {
+		repo := repository.NewMockPostRepo()
+		repo.GetByIDFunc = func(context.Context, int64) (*model.Post, error) { return nil, cause }
+		svc := newTestPostService(repo)
+
+		_, err := svc.Delete(context.Background(), 1)
+
+		appErr := requireAppError(t, err, apperror.CodeInternal, http.StatusInternalServerError)
+		if strings.Contains(appErr.Message, "secret-detail") {
+			t.Errorf("client-facing message leaks the cause: %q", appErr.Message)
+		}
+		if !errors.Is(err, cause) {
+			t.Error("cause must stay attached for server-side logging")
+		}
+	})
+
+	t.Run("write fails", func(t *testing.T) {
+		repo := repository.NewMockPostRepo()
+		seeded := seedForUpdate(t, repo, "Delete Fail", model.PostStatusDraft, t1)
+		repo.SoftDeleteFunc = func(context.Context, int64) error { return cause }
+		svc := newTestPostService(repo)
+		before := writesTotal(t, "delete")
+
+		_, err := svc.Delete(context.Background(), seeded.ID)
+
+		appErr := requireAppError(t, err, apperror.CodeInternal, http.StatusInternalServerError)
+		if strings.Contains(appErr.Message, "secret-detail") {
+			t.Errorf("client-facing message leaks the cause: %q", appErr.Message)
+		}
+		if !errors.Is(err, cause) {
+			t.Error("cause must stay attached for server-side logging")
+		}
+		if writesTotal(t, "delete") != before {
+			t.Error("a failed delete must not be counted")
+		}
+	})
+}

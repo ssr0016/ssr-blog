@@ -277,3 +277,27 @@ func (r *PostRepo) Update(ctx context.Context, p model.Post) (*model.Post, error
 	}
 	return updated, nil
 }
+
+// SoftDelete marks a non-deleted post as deleted by setting deleted_at. The row is never removed, so
+// its slug stays reserved. A missing or already soft-deleted id matches no row and returns
+// ErrPostNotFound, which also keeps the first deleted_at from being overwritten by a repeat.
+func (r *PostRepo) SoftDelete(ctx context.Context, id int64) error {
+	query, args, err := r.db.Builder.
+		Update("posts").
+		Set("deleted_at", sq.Expr("NOW()")).
+		Where(sq.Eq{"id": id}).
+		Where(notDeleted()).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build query: %w", err)
+	}
+
+	tag, err := r.db.Pool.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("soft delete post: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("soft delete post: %w", ErrPostNotFound)
+	}
+	return nil
+}

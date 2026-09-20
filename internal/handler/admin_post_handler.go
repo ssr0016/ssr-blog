@@ -175,3 +175,40 @@ func (h *AdminPostHandler) Update(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, updated.ToResponse())
 }
+
+// Delete godoc
+// @Summary      Delete a blog post
+// @Description  Admin only. Soft delete: the post disappears from public and admin reads, but its row is kept and its slug is never reused. Deleting an unknown or already deleted post is a 404.
+// @Tags         admin/posts
+// @Security     CookieAuth
+// @Param        id path int true "Post ID"
+// @Success      204 "No Content"
+// @Failure      400 {object} apperror.ErrorResponse
+// @Failure      401 {object} apperror.ErrorResponse
+// @Failure      403 {object} apperror.ErrorResponse
+// @Failure      404 {object} apperror.ErrorResponse
+// @Failure      429 {object} apperror.ErrorResponse
+// @Router       /admin/posts/{id} [delete]
+func (h *AdminPostHandler) Delete(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id < 1 {
+		return apperror.BadRequest("invalid post id")
+	}
+
+	ctx := c.Request().Context()
+	deleted, err := h.postService.Delete(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	// Audit trail: who did what. Deliberately carries no post content.
+	slog.InfoContext(ctx, "audit",
+		"audit", true,
+		"actor_user_id", h.sm.GetInt64(ctx, middleware.UserIDKey),
+		"action", "post.delete",
+		"post_id", deleted.ID,
+		"slug", deleted.Slug,
+	)
+
+	return c.NoContent(http.StatusNoContent)
+}

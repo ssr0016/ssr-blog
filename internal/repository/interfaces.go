@@ -82,6 +82,9 @@ type PostRepository interface {
 	// Update replaces the editable fields of a non-deleted post and never writes slug.
 	// A missing or soft-deleted id returns ErrPostNotFound.
 	Update(ctx context.Context, p model.Post) (*model.Post, error)
+	// SoftDelete sets deleted_at on a non-deleted post; the row is kept and its slug stays reserved.
+	// A missing or already soft-deleted id returns ErrPostNotFound.
+	SoftDelete(ctx context.Context, id int64) error
 }
 
 // Compile-time checks: implementations must satisfy interfaces.

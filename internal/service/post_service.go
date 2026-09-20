@@ -195,3 +195,28 @@ func (s *PostService) Update(ctx context.Context, id int64, req model.UpdatePost
 	}
 	return updated, transition, nil
 }
+
+// Delete soft-deletes a non-deleted post and returns it, so the caller can audit the slug. The post
+// is read first to tell "not found" from a failure; if it is deleted in between, the repository
+// reports not-found and so do we. The row is kept and its slug stays reserved. Only a successful
+// delete is counted.
+func (s *PostService) Delete(ctx context.Context, id int64) (*model.Post, error) {
+	post, err := s.postRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, apperror.Internal("failed to get post").WithError(err)
+	}
+	if post == nil {
+		return nil, apperror.NotFound("post not found")
+	}
+
+	err = s.postRepo.SoftDelete(ctx, id)
+	if errors.Is(err, repository.ErrPostNotFound) {
+		return nil, apperror.NotFound("post not found")
+	}
+	if err != nil {
+		return nil, apperror.Internal("failed to delete post").WithError(err)
+	}
+
+	metrics.PostWritesTotal.WithLabelValues(string(metrics.PostOpDelete)).Inc()
+	return post, nil
+}

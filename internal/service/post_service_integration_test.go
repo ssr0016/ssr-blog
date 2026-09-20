@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sort"
 	"sync"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ssr0016/ssr-blog/internal/apperror"
 	"github.com/ssr0016/ssr-blog/internal/database"
 	"github.com/ssr0016/ssr-blog/internal/model"
 	"github.com/ssr0016/ssr-blog/internal/repository"
@@ -125,4 +127,40 @@ func TestPostService_Create_PublishedRoundTrip(t *testing.T) {
 	assert.Equal(t, model.PostStatusPublished, got.Status)
 	require.NotNil(t, got.PublishedAt)
 	assert.WithinDuration(t, *created.PublishedAt, *got.PublishedAt, time.Millisecond)
+}
+
+// The key soft-delete scenario end to end, against a real database: Delete keeps the row, hides
+// the post, and reserves the slug so the same title gets the next suffix.
+func TestPostService_Delete_SoftDeletesKeepsTheRowAndReservesTheSlug(t *testing.T) {
+	svc, tdb := setupPostService(t)
+	ctx := context.Background()
+
+	first, err := svc.Create(ctx, model.CreatePostRequest{Title: "Reserved Title", Content: "C"})
+	require.NoError(t, err)
+	require.Equal(t, "reserved-title", first.Slug)
+
+	deleted, err := svc.Delete(ctx, first.ID)
+	require.NoError(t, err)
+	assert.Equal(t, first.ID, deleted.ID)
+	assert.Equal(t, "reserved-title", deleted.Slug)
+
+	// The row is still present with deleted_at set.
+	var count int
+	var deletedAt *time.Time
+	require.NoError(t, tdb.Pool.QueryRow(ctx, "SELECT COUNT(*), MAX(deleted_at) FROM posts WHERE id = $1", first.ID).Scan(&count, &deletedAt))
+	assert.Equal(t, 1, count, "Delete must never remove the row")
+	assert.NotNil(t, deletedAt, "deleted_at must be set")
+
+	// GetByID no longer sees it.
+	_, err = svc.GetByID(ctx, first.ID)
+	requireAppError(t, err, apperror.CodeNotFound, http.StatusNotFound)
+
+	// Same title again gets -2: the deleted post still owns the base slug.
+	second, err := svc.Create(ctx, model.CreatePostRequest{Title: "Reserved Title", Content: "C"})
+	require.NoError(t, err)
+	assert.Equal(t, "reserved-title-2", second.Slug)
+
+	// A second delete of the same id is a not-found, not a success.
+	_, err = svc.Delete(ctx, first.ID)
+	requireAppError(t, err, apperror.CodeNotFound, http.StatusNotFound)
 }
