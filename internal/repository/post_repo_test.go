@@ -78,6 +78,8 @@ func TestMockPostRepo_OverrideFuncs(t *testing.T) {
 	repo.GetByIDFunc = func(context.Context, int64) (*model.Post, error) { return nil, boom }
 	repo.ListPublishedFunc = func(context.Context, int, int) ([]model.PostSummary, int64, error) { return nil, 0, boom }
 	repo.GetPublishedBySlugFunc = func(context.Context, string) (*model.Post, error) { return nil, boom }
+	repo.ListAdminFunc = func(context.Context, string, int, int) ([]model.AdminPostSummary, int64, error) { return nil, 0, boom }
+	repo.UpdateFunc = func(context.Context, model.Post) (*model.Post, error) { return nil, boom }
 
 	if _, err := repo.Create(ctx, model.Post{}); !errors.Is(err, boom) {
 		t.Errorf("Create() error = %v, want override", err)
@@ -90,6 +92,12 @@ func TestMockPostRepo_OverrideFuncs(t *testing.T) {
 	}
 	if _, err := repo.GetPublishedBySlug(ctx, "x"); !errors.Is(err, boom) {
 		t.Errorf("GetPublishedBySlug() error = %v, want override", err)
+	}
+	if _, _, err := repo.ListAdmin(ctx, "", 1, 20); !errors.Is(err, boom) {
+		t.Errorf("ListAdmin() error = %v, want override", err)
+	}
+	if _, err := repo.Update(ctx, model.Post{ID: 1}); !errors.Is(err, boom) {
+		t.Errorf("Update() error = %v, want override", err)
 	}
 }
 
@@ -143,5 +151,85 @@ func TestMockPostRepo_GetPublishedBySlug(t *testing.T) {
 		if got, err := repo.GetPublishedBySlug(ctx, slug); err != nil || got != nil {
 			t.Errorf("GetPublishedBySlug(%s) = %+v, %v, want nil, nil", slug, got, err)
 		}
+	}
+}
+
+func TestMockPostRepo_ListAdmin(t *testing.T) {
+	ctx := context.Background()
+	repo := NewMockPostRepo()
+	now := time.Now()
+
+	var ids []int64
+	for _, p := range []model.Post{
+		{Title: "D1", Slug: "d1", Content: "x", Status: model.PostStatusDraft},
+		{Title: "P1", Slug: "p1", Content: "x", Status: model.PostStatusPublished, PublishedAt: &now},
+		{Title: "D2", Slug: "d2", Content: "x", Status: model.PostStatusDraft},
+		{Title: "Gone", Slug: "gone", Content: "x", Status: model.PostStatusDraft},
+	} {
+		created, err := repo.Create(ctx, p)
+		if err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+		ids = append(ids, created.ID)
+	}
+	repo.MarkDeleted(ids[3])
+
+	all, total, err := repo.ListAdmin(ctx, "", 1, 20)
+	if err != nil || total != 3 || len(all) != 3 {
+		t.Fatalf("ListAdmin(all) = %d items, total %d, err %v, want 3, 3, nil", len(all), total, err)
+	}
+	if all[0].Slug != "d2" || all[1].Slug != "p1" || all[2].Slug != "d1" {
+		t.Errorf("order = %v, want [d2 p1 d1] (created_at DESC, id DESC)", []string{all[0].Slug, all[1].Slug, all[2].Slug})
+	}
+
+	drafts, total, _ := repo.ListAdmin(ctx, model.PostStatusDraft, 1, 20)
+	if total != 2 || len(drafts) != 2 {
+		t.Errorf("ListAdmin(draft) = %d items, total %d, want 2, 2", len(drafts), total)
+	}
+
+	page2, total, _ := repo.ListAdmin(ctx, "", 2, 2)
+	if total != 3 || len(page2) != 1 || page2[0].Slug != "d1" {
+		t.Errorf("page 2 = %+v, total %d, want [d1], 3", page2, total)
+	}
+
+	past, total, _ := repo.ListAdmin(ctx, "", 9, 2)
+	if past == nil || len(past) != 0 || total != 3 {
+		t.Errorf("past the end = %#v, total %d, want empty non-nil slice and total 3", past, total)
+	}
+}
+
+func TestMockPostRepo_Update(t *testing.T) {
+	ctx := context.Background()
+	repo := NewMockPostRepo()
+	created, _ := repo.Create(ctx, model.Post{Title: "Old", Slug: "keep-me", Content: "x", Status: model.PostStatusDraft})
+	at := time.Now()
+
+	got, err := repo.Update(ctx, model.Post{
+		ID: created.ID, Title: "New", Slug: "hacked", Content: "y", Excerpt: "e", CoverImageURL: "https://example.com/a.png",
+		Status: model.PostStatusPublished, PublishedAt: &at,
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if got.Title != "New" || got.Content != "y" || got.Status != model.PostStatusPublished || got.PublishedAt == nil {
+		t.Errorf("Update() = %+v", got)
+	}
+	if got.Slug != "keep-me" {
+		t.Errorf("slug = %q, want it unchanged like the real repository", got.Slug)
+	}
+	if !got.CreatedAt.Equal(created.CreatedAt) {
+		t.Error("created_at must not change")
+	}
+	if stored, _ := repo.GetByID(ctx, created.ID); stored == nil || stored.Title != "New" || stored.Slug != "keep-me" {
+		t.Errorf("stored = %+v, want the update persisted", stored)
+	}
+
+	if _, err := repo.Update(ctx, model.Post{ID: 12345, Title: "T"}); !errors.Is(err, ErrPostNotFound) {
+		t.Errorf("missing id error = %v, want ErrPostNotFound", err)
+	}
+
+	repo.MarkDeleted(created.ID)
+	if _, err := repo.Update(ctx, model.Post{ID: created.ID, Title: "T"}); !errors.Is(err, ErrPostNotFound) {
+		t.Errorf("deleted id error = %v, want ErrPostNotFound", err)
 	}
 }
