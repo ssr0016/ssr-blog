@@ -145,6 +145,11 @@ No reverse dependencies. No cycles.
 - Converged (2 consecutive clean).
 - ADR if decision changed.
 
+### 7.4 Converge
+- (a) The reviewer is read-only. It changes nothing except the findings and metrics artifacts. The author fixes between rounds.
+- (b) The rule in 7.3 is unchanged: Converged means 2 consecutive clean rounds.
+- (c) Converge has caps on rounds, minutes, and tokens, set in `.specify/converge.yaml`. A run that reaches a cap ends Aborted, not Converged. An Aborted run does not ship unless the feature's notes.md has an "Accepted open findings" section listing each open finding with a one-line reason. See ADR 0006.
+
 ---
 
 ## Amendments
@@ -156,5 +161,5 @@ Any change to this constitution requires:
 
 ---
 
-Version: 1.0
+Version: 1.1
 Last updated: 2026-09-20
