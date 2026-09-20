@@ -100,11 +100,13 @@ func run() error {
 	permissionRepo := repository.NewPermissionRepo(db)
 	verificationRepo := repository.NewVerificationRepo(db)
 	passwordResetRepo := repository.NewPasswordResetRepo(db)
+	postRepo := repository.NewPostRepo(db)
 
 	// Services
 	verificationService := service.NewVerificationService(userRepo, verificationRepo, log)
 	authService := service.NewAuthService(userRepo, verificationService)
 	passwordResetService := service.NewPasswordResetService(userRepo, passwordResetRepo, log)
+	postService := service.NewPostService(postRepo)
 
 	// Handlers
 	authHandler := handler.NewAuthHandler(authService, sm)
@@ -112,6 +114,7 @@ func run() error {
 	roleHandler := handler.NewRoleHandler(roleRepo, permissionRepo)
 	permissionHandler := handler.NewPermissionHandler(permissionRepo)
 	adminUserHandler := handler.NewAdminUserHandler(userRepo, roleRepo)
+	adminPostHandler := handler.NewAdminPostHandler(postService, sm)
 	verificationHandler := handler.NewVerificationHandler(verificationService)
 	passwordResetHandler := handler.NewPasswordResetHandler(passwordResetService)
 	healthHandler := handler.NewHealthHandler(db.Pool)
@@ -155,6 +158,7 @@ func run() error {
 		roleHandler,
 		permissionHandler,
 		adminUserHandler,
+		adminPostHandler,
 	)
 
 	// Email verification route

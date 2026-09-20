@@ -1,20 +1,54 @@
 basePath: /api/v1
 definitions:
-  github_com_ssr0016_template_internal_model.AssignPermissionRequest:
+  github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse:
+    properties:
+      details:
+        additionalProperties:
+          type: string
+        type: object
+      error:
+        type: string
+      message:
+        type: string
+    type: object
+  github_com_ssr0016_ssr-blog_internal_model.AssignPermissionRequest:
     properties:
       permission_id:
         type: integer
     required:
     - permission_id
     type: object
-  github_com_ssr0016_template_internal_model.ChangeRoleRequest:
+  github_com_ssr0016_ssr-blog_internal_model.ChangeRoleRequest:
     properties:
       role_id:
         type: integer
     required:
     - role_id
     type: object
-  github_com_ssr0016_template_internal_model.CreateRoleRequest:
+  github_com_ssr0016_ssr-blog_internal_model.CreatePostRequest:
+    properties:
+      content:
+        maxLength: 100000
+        type: string
+      cover_image_url:
+        maxLength: 2048
+        type: string
+      excerpt:
+        maxLength: 500
+        type: string
+      status:
+        enum:
+        - draft
+        - published
+        type: string
+      title:
+        maxLength: 200
+        type: string
+    required:
+    - content
+    - title
+    type: object
+  github_com_ssr0016_ssr-blog_internal_model.CreateRoleRequest:
     properties:
       description:
         maxLength: 255
@@ -26,7 +60,7 @@ definitions:
     required:
     - name
     type: object
-  github_com_ssr0016_template_internal_model.LoginRequest:
+  github_com_ssr0016_ssr-blog_internal_model.LoginRequest:
     properties:
       email:
         type: string
@@ -36,7 +70,7 @@ definitions:
     - email
     - password
     type: object
-  github_com_ssr0016_template_internal_model.PermissionResponse:
+  github_com_ssr0016_ssr-blog_internal_model.PermissionResponse:
     properties:
       action:
         type: string
@@ -47,7 +81,30 @@ definitions:
       resource:
         type: string
     type: object
-  github_com_ssr0016_template_internal_model.RegisterRequest:
+  github_com_ssr0016_ssr-blog_internal_model.PostResponse:
+    properties:
+      content:
+        type: string
+      cover_image_url:
+        type: string
+      created_at:
+        type: string
+      excerpt:
+        type: string
+      id:
+        type: integer
+      published_at:
+        type: string
+      slug:
+        type: string
+      status:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_ssr0016_ssr-blog_internal_model.RegisterRequest:
     properties:
       email:
         type: string
@@ -62,7 +119,7 @@ definitions:
     - name
     - password
     type: object
-  github_com_ssr0016_template_internal_model.RoleResponse:
+  github_com_ssr0016_ssr-blog_internal_model.RoleResponse:
     properties:
       created_at:
         type: string
@@ -74,12 +131,12 @@ definitions:
         type: string
       permissions:
         items:
-          $ref: '#/definitions/github_com_ssr0016_template_internal_model.PermissionResponse'
+          $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.PermissionResponse'
         type: array
       updated_at:
         type: string
     type: object
-  github_com_ssr0016_template_internal_model.UpdateRoleRequest:
+  github_com_ssr0016_ssr-blog_internal_model.UpdateRoleRequest:
     properties:
       description:
         maxLength: 255
@@ -89,7 +146,7 @@ definitions:
         minLength: 2
         type: string
     type: object
-  github_com_ssr0016_template_internal_model.UserResponse:
+  github_com_ssr0016_ssr-blog_internal_model.UserResponse:
     properties:
       created_at:
         type: string
@@ -149,12 +206,12 @@ info:
   contact:
     email: support@example.com
     name: API Support
-  description: Go Echo + Squirrel + pgx template with session auth
+  description: ssrBlog - Personal blog with session auth and RBAC
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
   termsOfService: http://swagger.io/terms/
-  title: Template Go Echo API
+  title: ssrBlog API
   version: "1.0"
 paths:
   /admin/permissions:
@@ -171,7 +228,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_ssr0016_template_internal_model.PermissionResponse'
+              $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.PermissionResponse'
             type: array
       security:
       - CookieAuth: []
@@ -194,7 +251,7 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/github_com_ssr0016_template_internal_model.PermissionResponse'
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.PermissionResponse'
       security:
       - CookieAuth: []
       summary: Create a new permission
@@ -229,12 +286,96 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_ssr0016_template_internal_model.PermissionResponse'
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.PermissionResponse'
       security:
       - CookieAuth: []
       summary: Get permission by ID
       tags:
       - admin/permissions
+  /admin/posts:
+    post:
+      consumes:
+      - application/json
+      description: Admin only. The slug is generated from the title and never changes
+        afterwards. Status defaults to draft. Content is stored exactly as written;
+        it is not rendered or sanitized.
+      parameters:
+      - description: Post payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.CreatePostRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.PostResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+      security:
+      - CookieAuth: []
+      summary: Create a blog post
+      tags:
+      - admin/posts
+  /admin/posts/{id}:
+    get:
+      description: Admin only. Returns a post of any status, including drafts. Soft-deleted
+        posts are not found.
+      parameters:
+      - description: Post ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.PostResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse'
+      security:
+      - CookieAuth: []
+      summary: Get a blog post by ID
+      tags:
+      - admin/posts
   /admin/roles:
     get:
       produces:
@@ -244,7 +385,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_ssr0016_template_internal_model.RoleResponse'
+              $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.RoleResponse'
             type: array
       security:
       - CookieAuth: []
@@ -260,14 +401,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/github_com_ssr0016_template_internal_model.CreateRoleRequest'
+          $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.CreateRoleRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/github_com_ssr0016_template_internal_model.RoleResponse'
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.RoleResponse'
       security:
       - CookieAuth: []
       summary: Create a new role
@@ -302,7 +443,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_ssr0016_template_internal_model.RoleResponse'
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.RoleResponse'
       security:
       - CookieAuth: []
       summary: Get role by ID
@@ -322,14 +463,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/github_com_ssr0016_template_internal_model.UpdateRoleRequest'
+          $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.UpdateRoleRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_ssr0016_template_internal_model.RoleResponse'
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.RoleResponse'
       security:
       - CookieAuth: []
       summary: Update a role
@@ -350,7 +491,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/github_com_ssr0016_template_internal_model.AssignPermissionRequest'
+          $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.AssignPermissionRequest'
       responses:
         "200":
           description: OK
@@ -398,7 +539,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_ssr0016_template_internal_model.UserResponse'
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.UserResponse'
       security:
       - CookieAuth: []
       summary: Get user with role
@@ -419,14 +560,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/github_com_ssr0016_template_internal_model.ChangeRoleRequest'
+          $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.ChangeRoleRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_ssr0016_template_internal_model.UserResponse'
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.UserResponse'
       security:
       - CookieAuth: []
       summary: Change a user's role
@@ -473,14 +614,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/github_com_ssr0016_template_internal_model.LoginRequest'
+          $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.LoginRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_ssr0016_template_internal_model.UserResponse'
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.UserResponse'
         "401":
           description: Unauthorized
           schema:
@@ -548,14 +689,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/github_com_ssr0016_template_internal_model.RegisterRequest'
+          $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.RegisterRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/github_com_ssr0016_template_internal_model.UserResponse'
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.UserResponse'
         "400":
           description: Bad Request
           schema:
@@ -707,7 +848,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_ssr0016_template_internal_model.UserResponse'
+              $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.UserResponse'
             type: array
         "401":
           description: Unauthorized
@@ -735,7 +876,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_ssr0016_template_internal_model.UserResponse'
+            $ref: '#/definitions/github_com_ssr0016_ssr-blog_internal_model.UserResponse'
         "401":
           description: Unauthorized
           schema:
@@ -756,6 +897,6 @@ paths:
 securityDefinitions:
   CookieAuth:
     in: cookie
-    name: app_session
+    name: ssrblog_session
     type: apiKey
 swagger: "2.0"

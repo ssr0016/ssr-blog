@@ -20,6 +20,7 @@ func Setup(
 	roleHandler *handler.RoleHandler,
 	permissionHandler *handler.PermissionHandler,
 	adminUserHandler *handler.AdminUserHandler,
+	adminPostHandler *handler.AdminPostHandler,
 ) {
 	api := e.Group("/api/v1")
 
@@ -68,6 +69,12 @@ func Setup(
 	// Users (admin management)
 	admin.GET("/users/:id", adminUserHandler.GetUser)
 	admin.PUT("/users/:id/role", adminUserHandler.ChangeRole)
+
+	// Posts (admin only). Route-level limiters run after the group's auth and role checks, so
+	// rejected callers do not consume the admin's write budget.
+	postWriteLimit := ourmiddleware.RateLimit(rate.Limit(30.0/60.0), 10)
+	admin.POST("/posts", adminPostHandler.Create, postWriteLimit)
+	admin.GET("/posts/:id", adminPostHandler.Get)
 
 	_ = roleRepo // referenced in RequireRole
 }

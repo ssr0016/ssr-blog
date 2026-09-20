@@ -51,7 +51,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_ssr0016_template_internal_model.PermissionResponse"
+                                "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.PermissionResponse"
                             }
                         }
                     }
@@ -88,7 +88,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_ssr0016_template_internal_model.PermissionResponse"
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.PermissionResponse"
                         }
                     }
                 }
@@ -121,7 +121,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_ssr0016_template_internal_model.PermissionResponse"
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.PermissionResponse"
                         }
                     }
                 }
@@ -152,6 +152,133 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/posts": {
+            "post": {
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
+                "description": "Admin only. The slug is generated from the title and never changes afterwards. Status defaults to draft. Content is stored exactly as written; it is not rendered or sanitized.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin/posts"
+                ],
+                "summary": "Create a blog post",
+                "parameters": [
+                    {
+                        "description": "Post payload",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.CreatePostRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.PostResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/posts/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
+                "description": "Admin only. Returns a post of any status, including drafts. Soft-deleted posts are not found.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin/posts"
+                ],
+                "summary": "Get a blog post by ID",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Post ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.PostResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/roles": {
             "get": {
                 "security": [
@@ -172,7 +299,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_ssr0016_template_internal_model.RoleResponse"
+                                "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.RoleResponse"
                             }
                         }
                     }
@@ -201,7 +328,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_ssr0016_template_internal_model.CreateRoleRequest"
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.CreateRoleRequest"
                         }
                     }
                 ],
@@ -209,7 +336,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_ssr0016_template_internal_model.RoleResponse"
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.RoleResponse"
                         }
                     }
                 }
@@ -242,7 +369,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_ssr0016_template_internal_model.RoleResponse"
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.RoleResponse"
                         }
                     }
                 }
@@ -277,7 +404,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_ssr0016_template_internal_model.UpdateRoleRequest"
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.UpdateRoleRequest"
                         }
                     }
                 ],
@@ -285,7 +412,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_ssr0016_template_internal_model.RoleResponse"
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.RoleResponse"
                         }
                     }
                 }
@@ -344,7 +471,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_ssr0016_template_internal_model.AssignPermissionRequest"
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.AssignPermissionRequest"
                         }
                     }
                 ],
@@ -422,7 +549,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_ssr0016_template_internal_model.UserResponse"
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.UserResponse"
                         }
                     }
                 }
@@ -459,7 +586,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_ssr0016_template_internal_model.ChangeRoleRequest"
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.ChangeRoleRequest"
                         }
                     }
                 ],
@@ -467,7 +594,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_ssr0016_template_internal_model.UserResponse"
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.UserResponse"
                         }
                     }
                 }
@@ -539,7 +666,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_ssr0016_template_internal_model.LoginRequest"
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.LoginRequest"
                         }
                     }
                 ],
@@ -547,7 +674,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_ssr0016_template_internal_model.UserResponse"
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.UserResponse"
                         }
                     },
                     "401": {
@@ -657,7 +784,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_ssr0016_template_internal_model.RegisterRequest"
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.RegisterRequest"
                         }
                     }
                 ],
@@ -665,7 +792,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_ssr0016_template_internal_model.UserResponse"
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.UserResponse"
                         }
                     },
                     "400": {
@@ -903,7 +1030,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_ssr0016_template_internal_model.UserResponse"
+                                "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.UserResponse"
                             }
                         }
                     },
@@ -947,7 +1074,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_ssr0016_template_internal_model.UserResponse"
+                            "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.UserResponse"
                         }
                     },
                     "401": {
@@ -973,7 +1100,24 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "github_com_ssr0016_template_internal_model.AssignPermissionRequest": {
+        "github_com_ssr0016_ssr-blog_internal_apperror.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "details": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "error": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_ssr0016_ssr-blog_internal_model.AssignPermissionRequest": {
             "type": "object",
             "required": [
                 "permission_id"
@@ -984,7 +1128,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_ssr0016_template_internal_model.ChangeRoleRequest": {
+        "github_com_ssr0016_ssr-blog_internal_model.ChangeRoleRequest": {
             "type": "object",
             "required": [
                 "role_id"
@@ -995,7 +1139,39 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_ssr0016_template_internal_model.CreateRoleRequest": {
+        "github_com_ssr0016_ssr-blog_internal_model.CreatePostRequest": {
+            "type": "object",
+            "required": [
+                "content",
+                "title"
+            ],
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "maxLength": 100000
+                },
+                "cover_image_url": {
+                    "type": "string",
+                    "maxLength": 2048
+                },
+                "excerpt": {
+                    "type": "string",
+                    "maxLength": 500
+                },
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "draft",
+                        "published"
+                    ]
+                },
+                "title": {
+                    "type": "string",
+                    "maxLength": 200
+                }
+            }
+        },
+        "github_com_ssr0016_ssr-blog_internal_model.CreateRoleRequest": {
             "type": "object",
             "required": [
                 "name"
@@ -1012,7 +1188,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_ssr0016_template_internal_model.LoginRequest": {
+        "github_com_ssr0016_ssr-blog_internal_model.LoginRequest": {
             "type": "object",
             "required": [
                 "email",
@@ -1027,7 +1203,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_ssr0016_template_internal_model.PermissionResponse": {
+        "github_com_ssr0016_ssr-blog_internal_model.PermissionResponse": {
             "type": "object",
             "properties": {
                 "action": {
@@ -1044,7 +1220,42 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_ssr0016_template_internal_model.RegisterRequest": {
+        "github_com_ssr0016_ssr-blog_internal_model.PostResponse": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "cover_image_url": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "excerpt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "published_at": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_ssr0016_ssr-blog_internal_model.RegisterRequest": {
             "type": "object",
             "required": [
                 "email",
@@ -1065,7 +1276,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_ssr0016_template_internal_model.RoleResponse": {
+        "github_com_ssr0016_ssr-blog_internal_model.RoleResponse": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -1083,7 +1294,7 @@ const docTemplate = `{
                 "permissions": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_ssr0016_template_internal_model.PermissionResponse"
+                        "$ref": "#/definitions/github_com_ssr0016_ssr-blog_internal_model.PermissionResponse"
                     }
                 },
                 "updated_at": {
@@ -1091,7 +1302,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_ssr0016_template_internal_model.UpdateRoleRequest": {
+        "github_com_ssr0016_ssr-blog_internal_model.UpdateRoleRequest": {
             "type": "object",
             "properties": {
                 "description": {
@@ -1105,7 +1316,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_ssr0016_template_internal_model.UserResponse": {
+        "github_com_ssr0016_ssr-blog_internal_model.UserResponse": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -1188,7 +1399,7 @@ const docTemplate = `{
     "securityDefinitions": {
         "CookieAuth": {
             "type": "apiKey",
-            "name": "app_session",
+            "name": "ssrblog_session",
             "in": "cookie"
         }
     }
@@ -1200,8 +1411,8 @@ var SwaggerInfo = &swag.Spec{
 	Host:             "localhost:8080",
 	BasePath:         "/api/v1",
 	Schemes:          []string{},
-	Title:            "Template Go Echo API",
-	Description:      "Go Echo + Squirrel + pgx template with session auth",
+	Title:            "ssrBlog API",
+	Description:      "ssrBlog - Personal blog with session auth and RBAC",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",
