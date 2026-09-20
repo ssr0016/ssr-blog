@@ -214,3 +214,65 @@ func (m *MockUserRepo) ResetLoginAttempts(ctx context.Context, userID int64) err
 	user.LockedUntil = nil
 	return nil
 }
+
+// MockPostRepo is an in-memory implementation of PostRepository for testing.
+type MockPostRepo struct {
+	mu     sync.Mutex
+	posts  map[int64]*model.Post
+	nextID int64
+
+	// Override functions for testing specific behaviors
+	CreateFunc  func(ctx context.Context, p model.Post) (*model.Post, error)
+	GetByIDFunc func(ctx context.Context, id int64) (*model.Post, error)
+}
+
+// NewMockPostRepo creates a new mock post repository.
+func NewMockPostRepo() *MockPostRepo {
+	return &MockPostRepo{
+		posts:  make(map[int64]*model.Post),
+		nextID: 1,
+	}
+}
+
+// Create stores a post (mock). Like the real repository, a duplicate slug returns ErrSlugTaken.
+func (m *MockPostRepo) Create(ctx context.Context, p model.Post) (*model.Post, error) {
+	if m.CreateFunc != nil {
+		return m.CreateFunc(ctx, p)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, existing := range m.posts {
+		if existing.Slug == p.Slug {
+			return nil, fmt.Errorf("create post: %w", ErrSlugTaken)
+		}
+	}
+
+	now := time.Now()
+	p.ID = m.nextID
+	p.CreatedAt = now
+	p.UpdatedAt = now
+	p.DeletedAt = nil
+	stored := p
+	m.posts[p.ID] = &stored
+	m.nextID++
+
+	created := stored
+	return &created, nil
+}
+
+// GetByID returns a post (mock), or nil, nil if there is none.
+func (m *MockPostRepo) GetByID(ctx context.Context, id int64) (*model.Post, error) {
+	if m.GetByIDFunc != nil {
+		return m.GetByIDFunc(ctx, id)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	post, ok := m.posts[id]
+	if !ok {
+		return nil, nil
+	}
+	found := *post
+	return &found, nil
+}

@@ -3,6 +3,10 @@ package testutil
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,6 +127,48 @@ func (tdb *TestDB) RunMigrations(t *testing.T) {
 			t.Fatalf("migration failed: %v\nSQL: %s", err, m)
 		}
 	}
+
+	// Newer tables run the real goose migration files, so tests exercise the actual schema
+	// (index names, constraints) instead of a copy that can drift.
+	tdb.applyMigrationFile(t, "*_create_posts.sql")
+}
+
+// applyMigrationFile executes the Up section of the single migration file in
+// internal/database/migrations that matches glob.
+func (tdb *TestDB) applyMigrationFile(t *testing.T, glob string) {
+	t.Helper()
+
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot locate testutil source directory")
+	}
+	pattern := filepath.Join(filepath.Dir(thisFile), "..", "database", "migrations", glob)
+	files, err := filepath.Glob(pattern)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("want exactly one migration matching %s, got %v (err %v)", pattern, files, err)
+	}
+
+	raw, err := os.ReadFile(files[0]) // #nosec G304 - path is built from a fixed directory and a test-supplied glob
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+
+	up := string(raw)
+	if i := strings.Index(up, "-- +goose Down"); i >= 0 {
+		up = up[:i]
+	}
+	var sql strings.Builder
+	for _, line := range strings.Split(up, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "-- +goose") {
+			continue
+		}
+		sql.WriteString(line)
+		sql.WriteByte('\n')
+	}
+
+	if _, err := tdb.Pool.Exec(context.Background(), sql.String()); err != nil {
+		t.Fatalf("apply %s: %v", filepath.Base(files[0]), err)
+	}
 }
 
 func (tdb *TestDB) TruncateAll(t *testing.T) {
@@ -130,7 +176,7 @@ func (tdb *TestDB) TruncateAll(t *testing.T) {
 	ctx := context.Background()
 	tables := []string{
 		"password_resets", "verification_tokens", "role_permissions",
-		"permissions", "sessions", "users", "roles",
+		"permissions", "sessions", "users", "roles", "posts",
 	}
 	for _, table := range tables {
 		_, _ = tdb.Pool.Exec(ctx, fmt.Sprintf("TRUNCATE TABLE %s RESTART IDENTITY CASCADE", table))

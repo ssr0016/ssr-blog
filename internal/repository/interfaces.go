@@ -63,6 +63,15 @@ type PasswordResetRepository interface {
 	DeleteExpired(ctx context.Context) (int64, error)
 }
 
+// PostRepository defines the interface for blog post data access.
+// Every method excludes soft-deleted posts.
+type PostRepository interface {
+	// Create inserts a post. A slug collision returns ErrSlugTaken.
+	Create(ctx context.Context, p model.Post) (*model.Post, error)
+	// GetByID returns a non-deleted post of any status, or nil, nil if there is none.
+	GetByID(ctx context.Context, id int64) (*model.Post, error)
+}
+
 // Compile-time checks: implementations must satisfy interfaces.
 var (
 	_ UserRepository          = (*UserRepo)(nil)
@@ -70,4 +79,6 @@ var (
 	_ PermissionRepository    = (*PermissionRepo)(nil)
 	_ VerificationRepository  = (*VerificationRepo)(nil)
 	_ PasswordResetRepository = (*PasswordResetRepo)(nil)
+	_ PostRepository          = (*PostRepo)(nil)
+	_ PostRepository          = (*MockPostRepo)(nil)
 )
