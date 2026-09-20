@@ -17,7 +17,7 @@ Bootstrapped by hand in T1. The metrics template is built in T4; T4 reconciles a
 | Metric | Value |
 |---|---|
 | Tickets | 9 |
-| Tickets closed | 3 |
+| Tickets closed | 4 |
 | Context clears | 1 |
 | Converge rounds | 0 |
 | Tickets reopened after done | 0 |
@@ -49,7 +49,7 @@ Bootstrapped by hand in T1. The metrics template is built in T4; T4 reconciles a
 | T2 | session (not measured separately) | not tracked (session) | not tracked |
 | T3 | session (not measured separately) | not tracked (session) | not tracked |
 | T4 | pending | pending | pending |
-| T5 | pending | pending | pending |
+| T5 | session (not measured separately) | not tracked (session) | not tracked |
 | T6 | pending | pending | pending |
 | T7 | pending | pending | pending |
 | T8 | pending | pending | pending |

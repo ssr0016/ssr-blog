@@ -40,6 +40,12 @@ Not recorded here. The resolved questions are in spec.md "Open Questions".
 - T3: expect_exit helper added to the test file for exact exit-code assertions. -- needed to prove 0/1/2/64 distinctly.
 - T3: case6 test fixture had \\x27s typo and a stray duplicate printf; fixed via line-number patch. -- setup bug, not implementation.
 
+## T5 Decisions
+
+- T5: YAML regex tolerates a trailing comment on each key. -- ticket requires one-line comments; the strict `[[:space:]]*$` anchor would have failed the file with comments.
+- T5: test hardens the token-divided-by-1000 computation with a guard. -- set -u + empty grep produced "unbound variable" before the yaml existed; guard keeps first run clean and informative.
+- T5: values read from spec.md at test time. -- ticket wants a spec change to break the test; assert the current numbers from behavior 10 (4, 15, 90000).
+
 ## Blockers
 
 - None.

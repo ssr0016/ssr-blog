@@ -1,0 +1,7 @@
+# Bounded converge caps for this repo.
+# Precedence: this file, then ~/.spec-kit/converge.yaml, then built-in defaults in the command text.
+# Values must be positive integers.
+
+max_rounds: 4      # Stop the run after this many rounds
+max_minutes: 15    # Stop the run after this many wall-clock minutes
+max_tokens: 90000  # Stop the run after this many tokens across all rounds and reviewers

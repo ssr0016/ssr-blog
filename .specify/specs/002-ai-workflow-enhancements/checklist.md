@@ -71,7 +71,18 @@ After the change (script output `failures: 0`, 29 PASS lines):
 - [x] Workflow-only guard -- only .specify/ changes
 - [x] Not committed yet -- awaiting user
 - [ ] T4: Templates -- pending
-- [ ] T5: converge.yaml -- pending
+### T5: Config -- converge.yaml
+
+- [x] Tests written first -- first run: 6 passed, 3 failed (yaml missing + comment regex)
+- [x] run.sh passes -- output: 9 passed, 0 failed, exit 0
+- [x] bash -n clean -- SYNTAX OK on test_converge_yaml.sh
+- [x] ASCII only -- converge.yaml and test file both clean
+- [x] Three flat keys, positive integers, with one-line comments -- grep -E confirmed
+- [x] Defaults match spec behavior 10 -- test reads values from spec.md
+- [x] make lint -- output: 0 issues.
+- [x] make test -- exit 0, all packages ok
+- [x] Workflow-only guard -- only .specify/ changes
+- [x] Not committed yet -- awaiting user
 - [ ] T6: Converge command and review prompt -- pending
 - [ ] T7: Claim verification in implement/build -- pending
 - [ ] T8: sync.sh and install -- pending
