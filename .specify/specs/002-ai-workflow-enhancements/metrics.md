@@ -7,7 +7,7 @@ that has not happened yet. Never blank.
 Bootstrapped by hand in T1. The metrics template is built in T4; T4 reconciles any difference.
 
 **Feature:** 002-ai-workflow-enhancements
-**Status:** Aborted (both converge runs stopped at the token cap; the open findings are accepted in notes.md; not pushed yet)
+**Status:** Shipped
 **Started:** 2026-09-20
 
 ---
@@ -83,7 +83,7 @@ Scratch tokens total 202807 (B2 56761, B3 81290, S3 64756).
 
 ```
 feature: 002-ai-workflow-enhancements
-status: aborted
+status: shipped
 tickets: 9
 tickets_closed: 9
 context_clears: 3

@@ -264,7 +264,7 @@ Started 2026-09-20T11:27:37Z. Evidence below was gathered at HEAD 31d7ff1, and t
 
 ## Phase 4: Ship
 
-- [ ] Pending
+- [x] Pushed -- `git push origin main` -> `da179f5..2e95f04  main -> main`, exit 0; `git status -sb` -> `## main...origin/main`; `git log origin/main..HEAD` printed nothing (0 unpushed commits). The metrics.md status was set to Shipped in the follow-up commit `docs(spec): mark 002 shipped`.
 
 ---
 
