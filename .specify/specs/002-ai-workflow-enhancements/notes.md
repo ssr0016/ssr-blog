@@ -32,6 +32,14 @@ Not recorded here. The resolved questions are in spec.md "Open Questions".
 - T2: Test helpers split into check (expects success) and refuse (expects non-zero exit). -- needed for the "expected to fail" cases.
 - T2: case1, case6, case7, case8 test fixtures fixed during TDD. -- real bugs in the test setup, not in writefile.sh.
 
+## T3 Decisions
+
+- T3: --count TEXT=N splits on the last =, so TEXT may contain = itself. -- safest parse; matches the "flat key" spirit of converge.yaml.
+- T3: At least one condition is required, else exit 64. -- a verify with no condition is meaningless.
+- T3: Used TMP_LIST=$(mktemp) + trap instead of process substitution to avoid any << sequence. -- the ticket requires grep -c << on the script to be 0; < <(...) would have matched.
+- T3: expect_exit helper added to the test file for exact exit-code assertions. -- needed to prove 0/1/2/64 distinctly.
+- T3: case6 test fixture had \\x27s typo and a stray duplicate printf; fixed via line-number patch. -- setup bug, not implementation.
+
 ## Blockers
 
 - None.

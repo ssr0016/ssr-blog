@@ -58,7 +58,18 @@ After the change (script output `failures: 0`, 29 PASS lines):
 - [x] make test -- exit 0, all packages ok
 - [x] Workflow-only guard -- only .specify/ changes
 - [x] Not committed yet -- awaiting user
-- [ ] T3: verify-edit -- pending
+### T3: Edit verification -- verify-edit.sh
+
+- [x] Tests written first -- first run: 20 passed, 1 failed (case6_quote fixture bug)
+- [x] run.sh passes -- output: 21 passed, 0 failed, exit 0
+- [x] bash -n clean on both scripts -- SYNTAX OK
+- [x] ASCII only -- verify-edit.sh and test_verify_edit.sh both clean
+- [x] grep -c << on verify-edit.sh is 0 -- output: 0 (used temp file + trap instead of process substitution)
+- [x] Exit codes: 0 landed, 1 not landed, 2 unreadable, 64 bad usage -- case5_* tests
+- [x] make lint -- output: 0 issues.
+- [x] make test -- exit 0, all packages ok
+- [x] Workflow-only guard -- only .specify/ changes
+- [x] Not committed yet -- awaiting user
 - [ ] T4: Templates -- pending
 - [ ] T5: converge.yaml -- pending
 - [ ] T6: Converge command and review prompt -- pending

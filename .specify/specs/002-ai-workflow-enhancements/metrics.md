@@ -17,7 +17,7 @@ Bootstrapped by hand in T1. The metrics template is built in T4; T4 reconciles a
 | Metric | Value |
 |---|---|
 | Tickets | 9 |
-| Tickets closed | 2 |
+| Tickets closed | 3 |
 | Context clears | 1 |
 | Converge rounds | 0 |
 | Tickets reopened after done | 0 |
@@ -47,7 +47,7 @@ Bootstrapped by hand in T1. The metrics template is built in T4; T4 reconciles a
 | T1 | 3 (134 s measured, start to hand-off) | not tracked (session); C5 subagent 33366 | not tracked |
 | T1 commit | e13f2aa | -- | -- |
 | T2 | session (not measured separately) | not tracked (session) | not tracked |
-| T3 | pending | pending | pending |
+| T3 | session (not measured separately) | not tracked (session) | not tracked |
 | T4 | pending | pending | pending |
 | T5 | pending | pending | pending |
 | T6 | pending | pending | pending |
